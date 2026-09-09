@@ -1,0 +1,11 @@
+# MATLAB 编译产物与安装器（原 exe，非源码，体积大）
+application/
+uninstall/
+default_icon_48.png
+# 本地工具配置
+.claude/
+# 系统杂项
+Thumbs.db
+desktop.ini
+*.bak
+__pycache__/

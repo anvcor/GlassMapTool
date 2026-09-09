@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Optical Glass Map Tool</title>
+<style>
+  :root { --bg:#f0f0f0; --panel:#f7f7f7; --line:#c8c8c8; --txt:#222; --mute:#888; --blue:#1e90ff; --grey:#d9d9d9;
+          --field:#fff; --field-border:#999; --plot:#fff; --grid:#e8e8e8; --axis:#333; --axtxt:#444; --sel:#0078d7; --btn:#fff; color-scheme: light; }
+  :root[data-theme="dark"] { --bg:#1b1d21; --panel:#23262b; --line:#3a3f47; --txt:#e6e6e6; --mute:#9aa0a8; --blue:#3b8ff0; --grey:#3a3f47;
+          --field:#2b2f36; --field-border:#555b66; --plot:#15171a; --grid:#2c3037; --axis:#c8ccd2; --axtxt:#b0b6bf; --sel:#2f6fd0; --btn:#2b2f36; color-scheme: dark; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1b1d21; --panel:#23262b; --line:#3a3f47; --txt:#e6e6e6; --mute:#9aa0a8; --blue:#3b8ff0; --grey:#3a3f47;
+          --field:#2b2f36; --field-border:#555b66; --plot:#15171a; --grid:#2c3037; --axis:#c8ccd2; --axtxt:#b0b6bf; --sel:#2f6fd0; --btn:#2b2f36; color-scheme: dark; } }
+  * { box-sizing:border-box; }
+  body { margin:0; height:100vh; display:flex; gap:10px; padding:10px; background:var(--bg); font:14px/1.35 "Segoe UI", system-ui, "Microsoft YaHei", sans-serif; color:var(--txt); }
+  #panel { width:420px; min-width:360px; background:var(--panel); border:1px solid var(--line); display:flex; flex-direction:column; overflow:hidden; }
+  #panel .title { font-weight:bold; padding:6px 10px; border-bottom:1px solid var(--line); background:var(--field); display:flex; justify-content:space-between; align-items:center; }
+  #theme { height:26px; padding:0 8px; font-weight:normal; font-size:12px; background:var(--btn); color:var(--txt); }
+  #panel .body { padding:14px 20px; overflow-y:auto; flex:1; }
+  .filerow { display:flex; gap:10px; }
+  #files { flex:1; height:150px; border:1px solid var(--field-border); background:var(--field); overflow:auto; padding:2px; user-select:none; }
+  #files div { padding:2px 6px; white-space:nowrap; cursor:default; }
+  #files div.sel { background:var(--sel); color:#fff; }
+  #files .empty { color:var(--txt); }
+  #browse { width:44px; border:1px solid var(--blue); border-radius:8px; background:var(--btn); color:var(--txt); font-size:16px; cursor:pointer; }
+  .hint { color:var(--mute); font-size:12px; margin:8px 0; }
+  .sec { font-weight:bold; margin:26px 0 8px; }
+  .row { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .row label.k { width:62px; text-align:right; }
+  input[type=text], select, textarea { flex:1; height:36px; padding:4px 8px; border:1px solid var(--field-border); border-radius:3px; font:14px Consolas, monospace; background:var(--field); color:var(--txt); }
+  input.fict { background:#fff8e1; color:#222; }
+  :root[data-theme="dark"] input.fict { background:#4a3f1a; color:#ffe082; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) input.fict { background:#4a3f1a; color:#ffe082; } }
+  input.bad { border-color:#e53935; background:#ffebee; color:#222; }
+  button { height:40px; padding:0 14px; border:1px solid var(--field-border); border-radius:6px; font:bold 14px "Segoe UI", system-ui; cursor:pointer; background:var(--grey); color:var(--txt); }
+  button.blue { background:var(--blue); color:#fff; border-color:var(--blue); }
+  button.wide { width:170px; }
+  button:disabled { opacity:.45; cursor:default; }
+  fieldset { border:1px solid var(--line); margin:12px 0 0; padding:8px; }
+  legend { color:var(--mute); }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .grid3 button { height:36px; font-size:16px; background:var(--btn); }
+  #status { color:var(--mute); margin-top:14px; min-height:20px; white-space:pre-wrap; }
+  #status.warn { color:#d84315; }
+  #status.ok { color:#43a047; }
+  #main { flex:1; min-width:0; background:var(--plot); border:1px solid var(--line); display:flex; flex-direction:column; }
+  #tabs { display:flex; background:var(--panel); border-bottom:1px solid var(--line); }
+  #tabs div { padding:8px 18px; border-right:1px solid var(--line); cursor:pointer; font-size:15px; }
+  #tabs div.on { background:var(--plot); margin-bottom:-1px; border-bottom:1px solid var(--plot); }
+  #plotwrap { flex:1; position:relative; min-height:0; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; }
+  #tools { position:absolute; right:22px; top:8px; display:flex; gap:2px; background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:2px; }
+  #tools button { width:28px; height:26px; padding:0; border:0; background:transparent; font-size:15px; }
+  #tools button.on { background:var(--sel); color:#fff; border-radius:3px; }
+  #tip { position:fixed; pointer-events:none; background:#222; color:#fff; padding:3px 7px; border-radius:3px; font-size:12px; display:none; z-index:9; }
+  #out { width:100%; height:78px; margin-top:6px; font:12px Consolas, monospace; resize:vertical; }
+  #inside { max-height:130px; overflow:auto; border:1px solid var(--line); background:var(--field); font:12px Consolas, monospace; padding:4px; margin-top:4px; white-space:pre; }
+  select { height:30px; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <div class="title">Control Panel <button id="theme" title="界面深浅色：自动跟随系统 / 浅色 / 深色">🌓 自动</button></div>
+  <div class="body">
+    <div class="filerow">
+      <div id="files" tabindex="0"><div class="empty">No .xlsx files found</div></div>
+      <button id="browse" title="打开玻璃数据表 (.xlsx)">...</button>
+      <input type="file" id="fileInput" accept=".xlsx" multiple hidden>
+    </div>
+    <div class="hint">(Hold Ctrl to select multiple · 也可把 xlsx 拖进列表)</div>
+    <label><input type="checkbox" id="autoDraw" checked> Auto-Draw Random Boundary</label>
+
+    <div class="sec">Search Glass:</div>
+    <div class="row">
+      <input type="text" id="q" placeholder="e.g. HK9L">
+      <button id="find" class="blue">Find</button>
+      <button id="findClear">Clear</button>
+    </div>
+    <div class="hint" id="findInfo"></div>
+
+    <div class="sec">Boundary Points (CodeV):</div>
+    <div id="maps"></div>
+    <div class="row" style="margin-top:8px">
+      <label class="k">Surface:</label><input type="text" id="surf" value="S0..I" placeholder="S0..I（留空=所有可变玻璃）">
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="draw" class="blue wide">Draw</button>
+      <button id="clear" class="wide">Clear</button>
+    </div>
+    <div class="row">
+      <button id="autoMax" style="flex:1;background:#e8f4ff;border-color:#1e90ff;color:#0b5cad" title="自动生成覆盖当前所选玻璃库的 5 角点边界">Auto Boundary</button>
+      <select id="autoMode" title="角点类型" style="height:40px">
+        <option value="fict">假想角点</option>
+        <option value="real">真实玻璃角点</option>
+      </select>
+      <label title="目标覆盖率：低于此比例不再剥离离群玻璃">≥</label><input type="text" id="cover" value="97" style="width:44px;flex:none;height:40px;text-align:right">%
+    </div>
+    <fieldset>
+      <legend>Fine Tuning</legend>
+      <div class="row" style="margin:0 0 6px">
+        <select id="ftTarget" title="移动对象"><option value="all">整个边界</option></select>
+        <label title="nd 步长">Δnd</label><input type="text" id="stepN" value="0.005" style="width:60px;flex:none;height:30px">
+        <label title="nF−nC 步长">Δ(nF−nC)</label><input type="text" id="stepD" value="0.0005" style="width:64px;flex:none;height:30px">
+      </div>
+      <div class="grid3" id="nudge"></div>
+    </fieldset>
+    <div id="status">Ready</div>
+
+    <div class="sec" style="margin-top:18px">GLA 命令行</div>
+    <div class="row">
+      <input type="text" id="glaLine" readonly placeholder="Draw 后在此生成" style="font-weight:bold">
+      <button id="copyGla" class="blue" style="height:36px">复制 GLA</button>
+    </div>
+    <div class="hint">粘到 CODE V 的 AUT 段里即可，角点用 CODE V 内部名（无连字符）。</div>
+    <textarea id="out" readonly title="角点明细"></textarea>
+    <div class="row"><button id="copy" style="height:32px">复制明细</button><button id="importGla" style="height:32px" title="从剪贴板/下方输入解析 GLA 命令">解析 GLA</button><input type="text" id="glaIn" placeholder="GLA S0..I HFK95N_CDGM ..." style="height:32px"></div>
+    <div class="sec" style="margin-top:14px">边界内玻璃 <span id="insideN" style="font-weight:normal;color:#666"></span></div>
+    <div id="inside"></div>
+  </div>
+</div>
+
+<div id="main">
+  <div id="tabs">
+    <div class="on" data-t="cv">CodeV Boundary (nd vs nF-nC)</div>
+    <div data-t="abbe">Abbe Diagram (nd vs Vd)</div>
+  </div>
+  <div id="plotwrap">
+    <canvas id="cv"></canvas>
+    <div id="tools">
+      <button id="tPan" title="平移 (拖拽)">✋</button>
+      <button id="tZi" title="放大">＋</button>
+      <button id="tZo" title="缩小">－</button>
+      <button id="tHome" title="复位">⌂</button>
+      <button id="tPng" title="导出 PNG">⤓</button>
+    </div>
+  </div>
+</div>
+<div id="tip"></div>
+
+<script src="glasses.js"></script>
+<script>
+/* =====================================================================
+   1. xlsx 读取（纯浏览器实现：zip 目录解析 + DecompressionStream 解压）
+   ===================================================================== */
+async function unzip(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = buf.byteLength - 22;
+  while (eocd >= 0 && dv.getUint32(eocd, true) !== 0x06054b50) eocd--;
+  if (eocd < 0) throw new Error('不是 zip/xlsx 文件');
+  const n = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true);
+  const files = {};
+  for (let i = 0; i < n; i++) {
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), elen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
+    const lho = dv.getUint32(p + 42, true);
+    const dataOff = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+    files[name] = { method, data: u8.subarray(dataOff, dataOff + csize) };
+    p += 46 + nlen + elen + clen;
+  }
+  return async function read(name) {
+    const f = files[name]; if (!f) return null;
+    if (f.method === 0) return new TextDecoder().decode(f.data);
+    const ds = new DecompressionStream('deflate-raw');
+    const blob = new Blob([f.data]).stream().pipeThrough(ds);
+    return await new Response(blob).text();
+  };
+}
+function colIndex(ref) { let c = 0; for (const ch of ref) { if (ch < 'A' || ch > 'Z') break; c = c * 26 + ch.charCodeAt(0) - 64; } return c - 1; }
+async function readXlsx(buf) {
+  const read = await unzip(buf), P = new DOMParser();
+  const ss = [];
+  const ssx = await read('xl/sharedStrings.xml');
+  if (ssx) for (const si of P.parseFromString(ssx, 'application/xml').getElementsByTagName('si'))
+    ss.push([...si.getElementsByTagName('t')].map(t => t.textContent).join(''));
+  const wb = P.parseFromString(await read('xl/workbook.xml'), 'application/xml');
+  const names = [...wb.getElementsByTagName('sheet')].map(s => s.getAttribute('name'));
+  const out = {};
+  for (let i = 0; i < names.length; i++) {
+    const x = await read(`xl/worksheets/sheet${i + 1}.xml`); if (!x) continue;
+    const doc = P.parseFromString(x, 'application/xml'), rows = [];
+    for (const r of doc.getElementsByTagName('row')) {
+      const row = [];
+      for (const c of r.getElementsByTagName('c')) {
+        const t = c.getAttribute('t'), v = c.getElementsByTagName('v')[0];
+        let val = null;
+        if (t === 'inlineStr') val = [...c.getElementsByTagName('t')].map(e => e.textContent).join('');
+        else if (v) val = t === 's' ? ss[+v.textContent] : v.textContent;
+        if (val !== null) row[colIndex(c.getAttribute('r'))] = val;
+      }
+      rows.push(row);
+    }
+    out[names[i]] = rows;
+  }
+  return out;
+}
+/* 表头识别：与 extract_xlsx.py 相同规则，兼容 CDGM / HIKARI / HOYA / OHARA 格式 */
+const HDR = {
+  name: /glass/i,
+  nd: /^\s*nd\s*$|^d\s*\n|^n?d\s*\(?587/i,
+  nF: /^\s*nF\s*$|^F\s*\n|^n?F\s*\(?486/i,
+  nC: /^\s*nC\s*$|^C\s*\n|^n?C\s*\(?656/i,
+  dn: /^\s*nF\s*-\s*nC\s*$/i,
+};
+function parseCatalog(sheets, fileName) {
+  const cat = (fileName.match(/[A-Za-z]+/) || ['XLSX'])[0].toUpperCase(), list = [];
+  for (const [sheet, rows] of Object.entries(sheets)) {
+    const cols = {}; let hdr = 0;
+    rows.slice(0, 8).forEach((row, ri) => row.forEach((cell, ci) => {
+      if (typeof cell !== 'string') return;
+      for (const k in HDR) if (!(k in cols) && HDR[k].test(cell)) { cols[k] = ci; hdr = Math.max(hdr, ri); }
+    }));
+    if (!('name' in cols && 'nd' in cols && (('nF' in cols && 'nC' in cols) || 'dn' in cols))) continue;
+    for (const row of rows.slice(hdr + 1)) {
+      const name = row[cols.name], nd = parseFloat(row[cols.nd]);
+      const dn = 'dn' in cols ? parseFloat(row[cols.dn]) : parseFloat(row[cols.nF]) - parseFloat(row[cols.nC]);
+      if (typeof name !== 'string' || !name.trim() || !(nd > 1.2 && nd < 4.5) || !(dn > 0)) continue;
+      list.push(mk(name.trim(), cat, nd, dn, fileName));
+    }
+  }
+  return list;
+}
+function mk(vendorName, cat, nd, dn, src) {
+  return { name: vendorName, cv: vendorName.replace(/[\s\-]/g, '').toUpperCase(), cat, nd, dn, vd: (nd - 1) / dn, src };
+}
+
+/* =====================================================================
+   2. 数据源列表（xlsx 文件 + 可选的内置 CODE V 库）
+   ===================================================================== */
+const sources = [];           // {id, label, glasses, kind}
+let selected = new Set();     // 选中的 source id
+if (window.GLASS_DATA) {      // glasses.js 存在时，把 CODE V 内置库按厂商加入列表（可选）
+  const by = {}; for (const g of window.GLASS_DATA) (by[g.cat] = by[g.cat] || []).push(mk(g.name, g.cat, g.nd, g.dn, 'CODE V'));
+  for (const c of Object.keys(by).sort()) sources.push({ id: 'cv:' + c, label: `[CODE V] ${c}.xml`, glasses: by[c], kind: 'cv' });
+}
+function renderFiles() {
+  const box = document.getElementById('files'); box.innerHTML = '';
+  const xl = sources.filter(s => s.kind === 'xlsx');
+  if (!xl.length) { const d = document.createElement('div'); d.className = 'empty'; d.textContent = 'No .xlsx files found'; box.appendChild(d); }
+  for (const s of sources) {
+    const d = document.createElement('div'); d.textContent = s.label + `  (${s.glasses.length})`; d.dataset.id = s.id;
+    if (selected.has(s.id)) d.classList.add('sel');
+    d.onclick = e => { if (e.ctrlKey) selected.has(s.id) ? selected.delete(s.id) : selected.add(s.id); else selected = new Set([s.id]); renderFiles(); onSelectionChange(); };
+    box.appendChild(d);
+  }
+}
+async function addFiles(fileList) {
+  let n = 0;
+  for (const f of fileList) {
+    if (!/\.xlsx$/i.test(f.name)) continue;
+    try {
+      const gl = parseCatalog(await readXlsx(await f.arrayBuffer()), f.name);
+      if (!gl.length) { setStatus(`${f.name}: 未识别到 Glass / nd / nF / nC 列`, 'warn'); continue; }
+      const id = 'xlsx:' + f.name, i = sources.findIndex(s => s.id === id);
+      const s = { id, label: f.name, glasses: gl, kind: 'xlsx' };
+      i >= 0 ? sources[i] = s : sources.unshift(s);
+      selected.add(id); n++;
+    } catch (e) { setStatus(`${f.name}: ${e.message}`, 'warn'); }
+  }
+  renderFiles(); onSelectionChange();
+  if (n) { const e = document.getElementById('status'); e.textContent = `已载入 ${n} 个文件。 ` + e.textContent; }
+}
+let shown = [];
+function onSelectionChange() {
+  shown = sources.filter(s => selected.has(s.id)).flatMap(s => s.glasses);
+  resolveMaps();
+  if (document.getElementById('autoDraw').checked && shown.length) autoBoundary();
+  else if (polygon) doDraw(true);
+  home();
+}
+
+/* =====================================================================
+   3. 玻璃查找 / 角点
+   ===================================================================== */
+const DEFAULT_MAPS = ['FCD100', 'FCD705', 'TAC6', 'TAFD65', 'FDS16W'];   // 默认 HOYA 边界（原 exe 默认为 CDGM: H-FK95N H-LAK52 H-ZLAF68C H-ZLAF96 H-ZF73）
+function norm(s) { return s.replace(/[\s\-]/g, '').toUpperCase(); }
+function findGlass(text) {
+  let [nm, cat] = text.trim().split('_'); nm = norm(nm); cat = cat && cat.toUpperCase();
+  const pools = [shown, sources.flatMap(s => s.glasses)];
+  for (const p of pools) { const g = p.find(g => g.cv === nm && (!cat || g.cat === cat)); if (g) return g; }
+  return null;
+}
+function resolveCorner(text) {
+  const t = text.trim(); if (!t) return null;
+  let m;
+  if ((m = t.match(/^(\d*\.\d+)\s*:\s*(\d*\.?\d+)$/))) { const nd = +m[1]; return { label: t, nd, dn: (nd - 1) / m[2], fict: true }; }
+  if ((m = t.match(/^(\d{3})\.(\d{3})$/))) { const nd = 1 + m[1] / 1000; return { label: t, nd, dn: (nd - 1) / (m[2] / 10), fict: true }; }
+  const g = findGlass(t);
+  if (g) return { label: g.name, cv: g.cv + '_' + g.cat, nd: g.nd, dn: g.dn, fict: false, g };
+  if ((m = t.match(/^(\d{3})(\d{3})$/))) { const nd = 1 + m[1] / 1000; return { label: t, nd, dn: (nd - 1) / (m[2] / 10), fict: true }; }
+  return null;
+}
+let corners = [null, null, null, null, null];   // 对应 Map 1..5
+let polygon = null, found = null;
+function renderMaps() {
+  const box = document.getElementById('maps'); box.innerHTML = '';
+  for (let i = 0; i < 5; i++) {
+    const r = document.createElement('div'); r.className = 'row';
+    const l = document.createElement('label'); l.className = 'k'; l.textContent = `Map ${i + 1}:`;
+    const inp = document.createElement('input'); inp.type = 'text'; inp.id = 'map' + i;
+    inp.value = corners[i] ? corners[i].label : (mapText[i] || '');
+    if (corners[i]?.fict) inp.classList.add('fict');
+    if (mapText[i] && !corners[i]) inp.classList.add('bad');
+    if (corners[i]) inp.title = `nd=${corners[i].nd.toFixed(5)}  nF−nC=${corners[i].dn.toFixed(5)}  Vd=${vdOf(corners[i]).toFixed(2)}`;
+    inp.onchange = () => { mapText[i] = inp.value.trim(); corners[i] = resolveCorner(mapText[i]); renderMaps(); draw(); };
+    r.appendChild(l); r.appendChild(inp); box.appendChild(r);
+  }
+  const sel = document.getElementById('ftTarget'); const keep = sel.value; sel.innerHTML = '<option value="all">整个边界</option>';
+  corners.forEach((c, i) => { if (c) { const o = document.createElement('option'); o.value = i; o.textContent = `Map ${i + 1}  ${c.label}`; sel.appendChild(o); } });
+  sel.value = [...sel.options].some(o => o.value === keep) ? keep : 'all';
+}
+let mapText = [...DEFAULT_MAPS];
+function resolveMaps() { corners = mapText.map(t => resolveCorner(t)); renderMaps(); }
+const vdOf = c => (c.nd - 1) / c.dn;
+
+function autoBoundary() {
+  // Auto-Draw：Map 框里能解析的照用；解析不到的（例如换了厂商表）用随机玻璃补齐到 5 个，再取凸包画出
+  const live = corners.filter(Boolean);
+  const need = 5 - live.length;
+  if (need > 0 && shown.length >= 3) {
+    const pool = shown.filter(g => !live.some(c => c.g === g));
+    for (let k = 0; k < need && pool.length; k++) {
+      const g = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+      const i = corners.findIndex(c => !c);
+      corners[i] = { label: g.name, cv: g.cv + '_' + g.cat, nd: g.nd, dn: g.dn, fict: false, g }; mapText[i] = g.name;
+    }
+  }
+  renderMaps(); doDraw(true);
+}
+
+/* =====================================================================
+   4. 几何：凸包 / 点在多边形内
+   ===================================================================== */
+const cross = (o, a, b) => (a.dn - o.dn) * (b.nd - o.nd) - (a.nd - o.nd) * (b.dn - o.dn);
+function convexHull(pts) {
+  const p = [...pts].sort((a, b) => a.dn - b.dn || a.nd - b.nd); if (p.length < 3) return p;
+  const lo = []; for (const q of p) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  const up = []; for (const q of p.reverse()) { while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  return lo.slice(0, -1).concat(up.slice(0, -1));
+}
+function inPoly(pt, poly) { return insideConvex(pt, poly); }
+function inPolyRaycast(pt, poly) {
+  let ins = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.nd > pt.nd) !== (b.nd > pt.nd) && pt.dn < (b.dn - a.dn) * (pt.nd - a.nd) / (b.nd - a.nd) + a.dn) ins = !ins;
+  }
+  return ins;
+}
+function doDraw(quiet) {
+  const live = corners.filter(Boolean);
+  if (live.length < 3) { if (!quiet) setStatus('至少需要 3 个可识别的角点', 'warn'); polygon = null; draw(); return; }
+  const hull = convexHull(live), dropped = live.filter(c => !hull.includes(c));
+  polygon = hull; emit(); updateInside(); draw();
+  const ins = shown.filter(g => inPoly(g, polygon)).length;
+  if (dropped.length) setStatus(`Boundary drawn: ${hull.length} corners, ${ins} glasses inside.\n注意：${dropped.map(c => c.label).join(', ')} 在凸包内部，GLA 只接受凸多边形，已从命令中剔除。`, 'warn');
+  else setStatus(`Boundary drawn: ${hull.length} corners, ${ins} glasses inside.`, 'ok');
+}
+function emit() {
+  if (!polygon) { document.getElementById('out').value = ''; document.getElementById('glaLine').value = ''; return; }
+  const s = document.getElementById('surf').value.trim();
+  const names = polygon.map(c => c.fict ? c.nd.toFixed(4) + ':' + vdOf(c).toFixed(2) : c.cv);
+  const line = `GLA${s ? ' ' + s.toUpperCase() : ''} ${names.join(' ')}`;
+  document.getElementById('glaLine').value = line;
+  let txt = line + '\n';
+  txt += polygon.map(c => `!  ${(c.label).padEnd(14)} nd ${c.nd.toFixed(5)}  nF-nC ${c.dn.toFixed(5)}  Vd ${vdOf(c).toFixed(2)}`).join('\n');
+  document.getElementById('out').value = txt;
+}
+function updateInside() {
+  const box = document.getElementById('inside'); box.textContent = '';
+  if (!polygon) { document.getElementById('insideN').textContent = ''; return; }
+  const ins = shown.filter(g => inPoly(g, polygon)).sort((a, b) => a.cat.localeCompare(b.cat) || a.nd - b.nd);
+  const by = {}; ins.forEach(g => by[g.cat] = (by[g.cat] || 0) + 1);
+  document.getElementById('insideN').textContent = `${ins.length} 个  ${Object.entries(by).map(([k, v]) => k + ':' + v).join('  ')}`;
+  box.textContent = ins.map(g => `${g.name.padEnd(14)} ${g.cat.padEnd(7)} ${g.nd.toFixed(4)}  ${g.vd.toFixed(2)}`).join('\n');
+}
+function parseGLA() {
+  const t = document.getElementById('glaIn').value.replace(/!.*$/gm, '').trim(); if (!t) return;
+  const tok = t.split(/\s+/); if (tok[0].toUpperCase() !== 'GLA') { setStatus('不是 GLA 命令', 'warn'); return; }
+  const cs = []; let surf = '';
+  for (const w of tok.slice(1)) {
+    if (/^S[\dI.]+$/i.test(w) || /^Z[\d.]+$/i.test(w)) { surf += (surf ? ' ' : '') + w; continue; }
+    cs.push(w);
+  }
+  document.getElementById('surf').value = surf;
+  mapText = [0, 1, 2, 3, 4].map(i => cs[i] || ''); resolveMaps(); doDraw();
+}
+function nudge(dx, dy) {
+  const sn = +document.getElementById('stepN').value || 0, sd = +document.getElementById('stepD').value || 0;
+  const tgt = document.getElementById('ftTarget').value;
+  const list = tgt === 'all' ? corners.filter(Boolean) : [corners[+tgt]].filter(Boolean);
+  if (!list.length) return;
+  for (const c of list) { c.nd += dy * sn; c.dn += dx * sd; c.fict = true; delete c.g; c.label = c.nd.toFixed(4) + ':' + vdOf(c).toFixed(2); }
+  corners.forEach((c, i) => { if (c) mapText[i] = c.label; });
+  renderMaps(); document.getElementById('ftTarget').value = tgt;
+  polygon ? doDraw(true) : draw();
+}
+/* 凸多边形包含判定（含边界，容差 eps），poly 需为凸且有序 */
+function insideConvex(pt, poly, eps = 1e-9) {
+  let area = 0; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; area += a.dn * b.nd - b.dn * a.nd; }
+  const sgn = area >= 0 ? 1 : -1;
+  for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; if (cross(a, b, pt) * sgn < -eps) return false; }
+  return true;
+}
+/* 把凸包收缩成 k 边形且仍包含全部点：每次把相邻两个顶点 v[i], v[i+1] 用其外侧两条边延长线的交点替代，
+   选增加面积最小的一对，重复到 k 个顶点。交点在 nd–(nF−nC) 空间，作为假想玻璃 nd:Vd 输出。 */
+function shrinkHull(hull, k) {
+  let poly = hull.map(v => ({ nd: v.nd, dn: v.dn }));
+  const lineX = (p1, p2, p3, p4) => {   // 直线 p1p2 与 p3p4 交点
+    const d = (p1.dn - p2.dn) * (p3.nd - p4.nd) - (p1.nd - p2.nd) * (p3.dn - p4.dn);
+    if (Math.abs(d) < 1e-14) return null;
+    const t = ((p1.dn - p3.dn) * (p3.nd - p4.nd) - (p1.nd - p3.nd) * (p3.dn - p4.dn)) / d;
+    return { dn: p1.dn + t * (p2.dn - p1.dn), nd: p1.nd + t * (p2.nd - p1.nd) };
+  };
+  const tri = (a, b, c) => Math.abs(cross(a, b, c)) / 2;
+  while (poly.length > k) {
+    let best = null; const n = poly.length;
+    for (let i = 0; i < n; i++) {
+      const a = poly[(i - 1 + n) % n], b = poly[i], c = poly[(i + 1) % n], d = poly[(i + 2) % n];
+      const P = lineX(a, b, c, d); if (!P) continue;
+      // 交点必须在 b→c 边的外侧（凸性保持）：P 相对 a→b 在 b 之后、相对 d→c 在 c 之后
+      if ((P.dn - b.dn) * (b.dn - a.dn) + (P.nd - b.nd) * (b.nd - a.nd) < 0) continue;
+      if ((P.dn - c.dn) * (c.dn - d.dn) + (P.nd - c.nd) * (c.nd - d.nd) < 0) continue;
+      const add = tri(b, c, P);
+      if (!best || add < best.add) best = { i, P, add };
+    }
+    if (!best) return null;
+    const { i, P } = best;
+    const next = poly.filter((_, j) => j !== i && j !== (i + 1) % poly.length);
+    next.splice(i < (i + 1) % poly.length ? i : 0, 0, P);
+    poly = next;
+  }
+  return poly;
+}
+/* 自动覆盖边界：
+   1) 剥离离群点：反复找当前凸包上“单点撑起面积最大”的顶点，只要它撑起的面积超过凸包面积的 outlierFrac，
+      且剥掉后覆盖率仍 >= target，就把它剔除（HWS1、HFK71 这类特殊玻璃在这一步被去掉）。
+   2) 在剩余点的凸包上取 5 角点：
+      假想角点模式：shrinkHull 收缩成 5 边形，包住全部剩余点、面积增量最小。
+      真实玻璃模式：枚举凸包顶点的 5 元组，优先覆盖数多，其次面积小。 */
+function polyArea(poly) { let a = 0; for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length]; a += p.dn * q.nd - q.dn * p.nd; } return Math.abs(a) / 2; }
+function peelOutliers(pts, target, outlierFrac) {
+  let cur = pts.slice(), removed = [];
+  const minKeep = Math.ceil(target * pts.length);
+  while (cur.length > minKeep && cur.length > 5) {
+    const hull = convexHull(cur), A = polyArea(hull);
+    let best = null;
+    for (const v of hull) {
+      const rest = cur.filter(g => g !== v);
+      const dA = A - polyArea(convexHull(rest));
+      if (!best || dA > best.dA) best = { v, dA };
+    }
+    if (!best || best.dA < outlierFrac * A) break;
+    cur = cur.filter(g => g !== best.v); removed.push(best.v);
+  }
+  return { kept: cur, removed };
+}
+function autoMaxCoverage() {
+  if (shown.length < 3) { setStatus('先在列表里选择玻璃库', 'warn'); return; }
+  const mode = document.getElementById('autoMode').value;
+  const target = Math.min(1, Math.max(0.5, (parseFloat(document.getElementById('cover').value) || 97) / 100));
+  const { kept, removed } = peelOutliers(shown, target, 0.004);
+  const hull = convexHull(kept);
+  const countIn = poly => { let n = 0; for (const g of shown) if (insideConvex(g, poly)) n++; return n; };
+  let pick = null, fict = false;
+  if (hull.length <= 5) pick = hull;
+  else if (mode === 'fict') { const poly = shrinkHull(hull, 5); if (poly) { pick = poly; fict = true; } }
+  if (!pick) {   // 真实玻璃角点：覆盖数优先，面积次之
+    const H = hull.length; let best = null;
+    for (let a = 0; a < H - 4; a++) for (let b = a + 1; b < H - 3; b++) for (let c = b + 1; c < H - 2; c++) for (let d = c + 1; d < H - 1; d++) for (let e = d + 1; e < H; e++) {
+      const poly = [hull[a], hull[b], hull[c], hull[d], hull[e]];
+      const n = countIn(poly), A = polyArea(poly);
+      if (!best || n > best.n || (n === best.n && A < best.A)) best = { poly, n, A };
+    }
+    pick = best.poly;
+  }
+  corners = [null, null, null, null, null]; mapText = ['', '', '', '', ''];
+  pick.forEach((p, i) => {
+    const c = fict ? { nd: p.nd, dn: p.dn, fict: true } : { label: p.name, cv: p.cv + '_' + p.cat, nd: p.nd, dn: p.dn, fict: false, g: p };
+    if (fict) c.label = p.nd.toFixed(4) + ':' + vdOf(c).toFixed(2);
+    corners[i] = c; mapText[i] = c.label;
+  });
+  renderMaps(); doDraw(true);
+  const miss = shown.filter(g => !insideConvex(g, polygon));
+  const pct = ((shown.length - miss.length) / shown.length * 100).toFixed(1);
+  setStatus(`Auto boundary (${fict ? '假想角点' : '真实玻璃角点'}): cover ${shown.length - miss.length} / ${shown.length} (${pct}%)，剥离离群 ${removed.length} 块，凸包 ${hull.length} 顶点`
+    + (miss.length ? `\n未覆盖: ${miss.slice(0, 15).map(g => g.name).join(', ')}${miss.length > 15 ? ' …' : ''}` : ''), miss.length && (shown.length - miss.length) < target * shown.length ? 'warn' : 'ok');
+}
+function setStatus(s, cls) { const e = document.getElementById('status'); e.textContent = s; e.className = cls || ''; }
+
+/* =====================================================================
+   5. 绘图
+   ===================================================================== */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const HOME = { cv: { x0: 0.004, x1: 0.05, y0: 1.40, y1: 2.15 }, abbe: { x0: 100, x1: 15, y0: 1.40, y1: 2.15 } };
+let tab = 'cv', V = { ...HOME.cv }, hover = null, drag = null, panMode = false;
+let dragCorner = -1, hoverCorner = -1, dragStart = null;
+const M = { l: 62, r: 24, t: 40, b: 44 };
+const X = g => tab === 'cv' ? g.dn : (g.nd - 1) / g.dn;
+const px = x => M.l + (x - V.x0) / (V.x1 - V.x0) * (cv.width - M.l - M.r);
+const py = y => cv.height - M.b - (y - V.y0) / (V.y1 - V.y0) * (cv.height - M.t - M.b);
+function niceStep(range, n) { const r = range / n, p = Math.pow(10, Math.floor(Math.log10(r))); for (const k of [1, 2, 2.5, 5, 10]) if (k * p >= r) return k * p; return 10 * p; }
+function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; draw(); }
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function draw() {
+  const W = cv.width, H = cv.height; ctx.clearRect(0, 0, W, H);
+  const T = { plot: css('--plot'), grid: css('--grid'), axis: css('--axis'), axtxt: css('--axtxt'), txt: css('--txt') };
+  ctx.fillStyle = T.plot; ctx.fillRect(0, 0, W, H);
+  ctx.font = '12px Segoe UI, system-ui'; ctx.lineWidth = 1;
+  const xs = niceStep(Math.abs(V.x1 - V.x0), 9), ys = niceStep(V.y1 - V.y0, 9), xa = Math.min(V.x0, V.x1), xb = Math.max(V.x0, V.x1);
+  ctx.strokeStyle = T.grid; ctx.fillStyle = T.axtxt;
+  for (let x = Math.ceil(xa / xs) * xs; x <= xb + 1e-12; x += xs) { const p = px(x); ctx.beginPath(); ctx.moveTo(p, M.t); ctx.lineTo(p, H - M.b); ctx.stroke(); ctx.textAlign = 'center'; ctx.fillText(+x.toFixed(6), p, H - M.b + 16); }
+  for (let y = Math.ceil(V.y0 / ys) * ys; y <= V.y1 + 1e-12; y += ys) { const p = py(y); ctx.beginPath(); ctx.moveTo(M.l, p); ctx.lineTo(W - M.r, p); ctx.stroke(); ctx.textAlign = 'right'; ctx.fillText(+y.toFixed(4), M.l - 6, p + 4); }
+  ctx.strokeStyle = T.axis; ctx.strokeRect(M.l, M.t, W - M.l - M.r, H - M.t - M.b);
+  ctx.fillStyle = T.txt; ctx.textAlign = 'center'; ctx.font = 'bold 13px Segoe UI, system-ui';
+  ctx.fillText(tab === 'cv' ? 'nF − nC' : 'Abbe Number Vd', (M.l + W - M.r) / 2, H - 8);
+  ctx.save(); ctx.translate(16, (M.t + H - M.b) / 2); ctx.rotate(-Math.PI / 2); ctx.fillText('nd', 0, 0); ctx.restore();
+  ctx.fillText(tab === 'cv' ? 'CODE V Glass Map Boundary (nd vs nF−nC)' : 'Abbe Diagram (nd vs Vd)', (M.l + W - M.r) / 2, 24);
+  ctx.save(); ctx.beginPath(); ctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b); ctx.clip();
+  // 边界（阿贝图上按 dn-nd 空间采样，边呈曲线）
+  const live = corners.filter(Boolean), poly = polygon || (live.length >= 3 ? convexHull(live) : null);
+  if (poly) {
+    ctx.beginPath();
+    poly.forEach((c, i) => { const n = poly[(i + 1) % poly.length]; for (let k = 0; k <= 24; k++) { const t = k / 24, pt = { nd: c.nd + (n.nd - c.nd) * t, dn: c.dn + (n.dn - c.dn) * t }; const xx = px(X(pt)), yy = py(pt.nd); (i === 0 && k === 0) ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy); } });
+    ctx.closePath(); ctx.fillStyle = polygon ? 'rgba(255,99,71,.10)' : 'rgba(255,99,71,.04)'; ctx.fill();
+    ctx.strokeStyle = polygon ? '#e53935' : '#ef9a9a'; ctx.lineWidth = 2; ctx.setLineDash(polygon ? [] : [6, 4]); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // 玻璃点（按文件/厂商着色）
+  const cats = [...new Set(shown.map(g => g.src))], COL = ['#1f77b4', '#2ca02c', '#9467bd', '#8c564b', '#e377c2', '#17becf', '#bcbd22', '#7f7f7f'];
+  cats.forEach((s, ci) => { ctx.beginPath(); for (const g of shown) { if (g.src !== s) continue; const x = px(X(g)), y = py(g.nd); ctx.moveTo(x + 2.4, y); ctx.arc(x, y, 2.4, 0, 7); } ctx.fillStyle = COL[ci % COL.length]; ctx.globalAlpha = polygon ? .45 : .9; ctx.fill(); ctx.globalAlpha = 1; });
+  if (polygon) { ctx.beginPath(); for (const g of shown) { if (!inPoly(g, polygon)) continue; const x = px(X(g)), y = py(g.nd); ctx.moveTo(x + 3, y); ctx.arc(x, y, 3, 0, 7); } ctx.fillStyle = '#ff8f00'; ctx.fill(); }
+  // 角点
+  corners.forEach((c, i) => { if (!c) return; const x = px(X(c)), y = py(c.nd); ctx.beginPath(); ctx.arc(x, y, i === dragCorner ? 9 : 6, 0, 7); ctx.fillStyle = c.fict ? '#ffb300' : '#e53935'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = isDark() ? '#ff8a80' : '#b71c1c'; ctx.font = 'bold 12px Segoe UI, system-ui'; ctx.textAlign = 'left'; ctx.fillText(`${i + 1}: ${c.label}`, x + 9, y - 7); });
+  if (hover && !drag) { const x = px(X(hover)), y = py(hover.nd); ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.strokeStyle = '#1e88e5'; ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = isDark() ? '#90caf9' : '#0d47a1'; ctx.font = 'bold 12px Segoe UI, system-ui'; ctx.textAlign = 'left'; ctx.fillText(hover.name, x + 10, y - 8); }
+  if (hoverCorner >= 0 && dragCorner < 0) { const c = corners[hoverCorner], x = px(X(c)), y = py(c.nd); ctx.beginPath(); ctx.arc(x, y, 11, 0, 7); ctx.strokeStyle = 'rgba(229,57,53,.6)'; ctx.lineWidth = 3; ctx.stroke(); }
+  if (found) { const x = px(X(found)), y = py(found.nd); ctx.strokeStyle = '#00897b'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, 10, 0, 7); ctx.stroke(); ctx.fillStyle = isDark() ? '#80cbc4' : '#00695c'; ctx.font = 'bold 13px Segoe UI, system-ui'; ctx.textAlign = 'left'; ctx.fillText(`${found.name} (${found.cat})`, x + 13, y + 5); }
+  ctx.restore();
+  // 图例
+  ctx.font = '12px Segoe UI, system-ui'; ctx.textAlign = 'left';
+  cats.forEach((s, ci) => { ctx.fillStyle = COL[ci % COL.length]; ctx.fillRect(M.l + 8 + ci * 150, M.t + 8, 10, 10); ctx.fillStyle = T.txt; ctx.fillText(s.replace(/\.xlsx$/i, ''), M.l + 22 + ci * 150, M.t + 18); });
+}
+const SNAP = 18;   // 鼠标捕捉半径 (px)
+function nearest(mx, my, rad = SNAP) { let best = null, bd = rad * rad; for (const g of shown) { const dx = px(X(g)) - mx, dy = py(g.nd) - my, d = dx * dx + dy * dy; if (d < bd) { bd = d; best = g; } } return best; }
+function nearestCorner(mx, my, rad = 14) { let best = -1, bd = rad * rad; corners.forEach((c, i) => { if (!c) return; const dx = px(X(c)) - mx, dy = py(c.nd) - my, d = dx * dx + dy * dy; if (d < bd) { bd = d; best = i; } }); return best; }
+function toggleCorner(g) {
+  const i = corners.findIndex(c => c && c.g === g);
+  if (i >= 0) { corners[i] = null; mapText[i] = ''; }
+  else { const j = corners.findIndex(c => !c); if (j < 0) { setStatus('已有 5 个角点（GLA 上限），先清掉一个或拖动已有角点', 'warn'); return; } corners[j] = { label: g.name, cv: g.cv + '_' + g.cat, nd: g.nd, dn: g.dn, fict: false, g }; mapText[j] = g.name; }
+  renderMaps(); polygon ? doDraw(true) : draw();
+}
+function toData(mx, my) {   // 像素 -> {nd, dn}
+  const xv = V.x0 + (mx - M.l) / (cv.width - M.l - M.r) * (V.x1 - V.x0), nd = V.y0 + (cv.height - M.b - my) / (cv.height - M.t - M.b) * (V.y1 - V.y0);
+  return { nd, dn: tab === 'cv' ? xv : (nd - 1) / xv };
+}
+cv.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const tip = document.getElementById('tip');
+  if (dragCorner >= 0) {   // 拖动角点：靠近玻璃就吸附，否则为假想玻璃
+    const c = corners[dragCorner], g = nearest(mx, my, 12);
+    if (g) Object.assign(c, { nd: g.nd, dn: g.dn, fict: false, g, label: g.name, cv: g.cv + '_' + g.cat });
+    else { const d = toData(mx, my); Object.assign(c, { nd: d.nd, dn: d.dn, fict: true }); delete c.g; delete c.cv; c.label = d.nd.toFixed(4) + ':' + vdOf(c).toFixed(2); }
+    mapText[dragCorner] = c.label; tip.style.display = 'none'; draw(); return;
+  }
+  if (drag) { const dx = (mx - drag.mx) / (cv.width - M.l - M.r) * (V.x1 - V.x0), dy = (my - drag.my) / (cv.height - M.t - M.b) * (V.y1 - V.y0); V.x0 = drag.v.x0 - dx; V.x1 = drag.v.x1 - dx; V.y0 = drag.v.y0 + dy; V.y1 = drag.v.y1 + dy; draw(); return; }
+  hoverCorner = panMode ? -1 : nearestCorner(mx, my);
+  hover = hoverCorner >= 0 ? null : nearest(mx, my);
+  cv.style.cursor = panMode ? 'grab' : hoverCorner >= 0 ? 'move' : hover ? 'pointer' : 'crosshair';
+  if (hover) { tip.style.display = 'block'; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; const isC = corners.some(c => c && c.g === hover); tip.textContent = `${hover.name}  [${hover.cat}]  nd=${hover.nd.toFixed(5)}  Vd=${hover.vd.toFixed(2)}  nF−nC=${hover.dn.toFixed(5)}   ${isC ? '点击移除角点' : '点击设为角点'}`; }
+  else if (hoverCorner >= 0) { tip.style.display = 'block'; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; tip.textContent = `Map ${hoverCorner + 1}: ${corners[hoverCorner].label}   拖动可移动，点击移除`; }
+  else tip.style.display = 'none';
+  draw();
+});
+cv.addEventListener('mousedown', e => {
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  if (!panMode) { const ci = nearestCorner(mx, my); if (ci >= 0) { dragCorner = ci; dragStart = { mx, my }; return; } }
+  drag = { mx, my, v: { ...V } };
+});
+window.addEventListener('mouseup', e => {
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  if (dragCorner >= 0) {
+    const moved = Math.abs(mx - dragStart.mx) + Math.abs(my - dragStart.my) > 3, i = dragCorner; dragCorner = -1;
+    if (!moved) { corners[i] = null; mapText[i] = ''; }
+    renderMaps(); polygon ? doDraw(true) : draw(); return;
+  }
+  if (!drag) return;
+  const moved = Math.abs(mx - drag.mx) + Math.abs(my - drag.my) > 3; drag = null;
+  if (!moved && e.target === cv && !panMode) { const g = nearest(mx, my); if (g) toggleCorner(g); }
+});
+cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomAt(e.deltaY > 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+cv.addEventListener('dblclick', home);
+cv.addEventListener('mouseleave', () => document.getElementById('tip').style.display = 'none');
+function zoomAt(f, mx, my) { const xv = V.x0 + (mx - M.l) / (cv.width - M.l - M.r) * (V.x1 - V.x0), yv = V.y0 + (cv.height - M.b - my) / (cv.height - M.t - M.b) * (V.y1 - V.y0); V.x0 = xv - (xv - V.x0) * f; V.x1 = xv + (V.x1 - xv) * f; V.y0 = yv - (yv - V.y0) * f; V.y1 = yv + (V.y1 - yv) * f; draw(); }
+function fitView() {   // 按当前数据自动适配坐标范围（含角点），留 6% 边距
+  const pts = shown.concat(corners.filter(Boolean));
+  if (!pts.length) return { ...HOME[tab] };
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const g of pts) { const x = X(g); if (x < x0) x0 = x; if (x > x1) x1 = x; if (g.nd < y0) y0 = g.nd; if (g.nd > y1) y1 = g.nd; }
+  const px_ = (x1 - x0) * 0.06 || 0.001, py_ = (y1 - y0) * 0.06 || 0.01;
+  x0 -= px_; x1 += px_; y0 -= py_; y1 += py_;
+  return tab === 'cv' ? { x0, x1, y0, y1 } : { x0: x1, x1: x0, y0, y1 };   // 阿贝图 Vd 轴反向
+}
+function home() { V = fitView(); draw(); }
+
+/* =====================================================================
+   6. 事件绑定
+   ===================================================================== */
+document.getElementById('browse').onclick = () => document.getElementById('fileInput').click();
+document.getElementById('fileInput').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+const fl = document.getElementById('files');
+fl.addEventListener('dragover', e => { e.preventDefault(); fl.style.background = '#eef5ff'; });
+fl.addEventListener('dragleave', () => fl.style.background = '#fff');
+fl.addEventListener('drop', e => { e.preventDefault(); fl.style.background = '#fff'; addFiles(e.dataTransfer.files); });
+document.querySelectorAll('#tabs div').forEach(d => d.onclick = () => { document.querySelectorAll('#tabs div').forEach(x => x.classList.remove('on')); d.classList.add('on'); tab = d.dataset.t; home(); });
+document.getElementById('find').onclick = () => {
+  const q = document.getElementById('q').value; found = findGlass(q);
+  document.getElementById('findInfo').textContent = found ? `${found.name} [${found.cat}]  nd=${found.nd.toFixed(5)}  Vd=${found.vd.toFixed(2)}  nF−nC=${found.dn.toFixed(5)}` + (polygon ? (inPoly(found, polygon) ? '   ✔ inside boundary' : '   ✘ outside boundary') : '') : (q.trim() ? `"${q}" not found in selected catalogs` : '');
+  if (found && !shown.includes(found)) { const s = sources.find(s => s.glasses.includes(found)); if (s) { selected.add(s.id); renderFiles(); shown = sources.filter(s => selected.has(s.id)).flatMap(s => s.glasses); } }
+  draw();
+};
+document.getElementById('q').onkeydown = e => { if (e.key === 'Enter') document.getElementById('find').onclick(); };
+document.getElementById('findClear').onclick = () => { found = null; document.getElementById('q').value = ''; document.getElementById('findInfo').textContent = ''; draw(); };
+document.getElementById('draw').onclick = () => doDraw(false);
+document.getElementById('clear').onclick = () => { polygon = null; corners = [null, null, null, null, null]; mapText = ['', '', '', '', '']; renderMaps(); emit(); updateInside(); setStatus('Ready'); draw(); };
+document.getElementById('surf').oninput = emit;
+document.getElementById('copy').onclick = () => { const t = document.getElementById('out'); t.select(); navigator.clipboard?.writeText(t.value); setStatus('GLA 命令已复制到剪贴板', 'ok'); };
+document.getElementById('importGla').onclick = parseGLA;
+document.getElementById('copyGla').onclick = () => { const t = document.getElementById('glaLine'); if (!t.value) { setStatus('还没有边界，先 Draw', 'warn'); return; } t.select(); navigator.clipboard?.writeText(t.value); setStatus('已复制: ' + t.value, 'ok'); };
+document.getElementById('autoMax').onclick = () => { setStatus('计算中…'); setTimeout(autoMaxCoverage, 20); };
+document.getElementById('glaIn').onkeydown = e => { if (e.key === 'Enter') parseGLA(); };
+[['↖', -1, 1], ['↑', 0, 1], ['↗', 1, 1], ['←', -1, 0], ['•', 0, 0], ['→', 1, 0], ['↙', -1, -1], ['↓', 0, -1], ['↘', 1, -1]].forEach(([s, dx, dy]) => { const b = document.createElement('button'); b.textContent = s; b.onclick = () => nudge(dx, dy); document.getElementById('nudge').appendChild(b); });
+document.getElementById('tPan').onclick = e => { panMode = !panMode; e.currentTarget.classList.toggle('on', panMode); cv.style.cursor = panMode ? 'grab' : 'crosshair'; };
+document.getElementById('tZi').onclick = () => zoomAt(1 / 1.3, (M.l + cv.width - M.r) / 2, (M.t + cv.height - M.b) / 2);
+document.getElementById('tZo').onclick = () => zoomAt(1.3, (M.l + cv.width - M.r) / 2, (M.t + cv.height - M.b) / 2);
+document.getElementById('tHome').onclick = home;
+document.getElementById('tPng').onclick = () => { const a = document.createElement('a'); a.download = (tab === 'cv' ? 'codev_boundary' : 'abbe_diagram') + '.png'; a.href = cv.toDataURL('image/png'); a.click(); };
+window.addEventListener('resize', resize);
+window.loadXlsxFromUrl = async (url) => { const b = await (await fetch(url)).blob(); await addFiles([new File([b], url.split('/').pop())]); };  // 供测试/自动加载用
+
+if (sources.some(s => s.id === 'cv:HOYA')) selected = new Set(['cv:HOYA']);   // 打开即显示 HOYA
+/* 主题：auto 跟随系统 prefers-color-scheme，light / dark 固定；记在 localStorage */
+const mql = window.matchMedia('(prefers-color-scheme: dark)');
+function isDark() { const t = document.documentElement.dataset.theme; return t === 'dark' || (!t && mql.matches); }
+function applyTheme(mode) {
+  if (mode === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = mode;
+  document.getElementById('theme').textContent = { auto: '🌓 自动', light: '☀ 浅色', dark: '🌙 深色' }[mode];
+  try { localStorage.setItem('gmt-theme', mode); } catch (e) {}
+  draw();
+}
+let themeMode = 'auto'; try { themeMode = localStorage.getItem('gmt-theme') || 'auto'; } catch (e) {}
+document.getElementById('theme').onclick = () => { themeMode = { auto: 'light', light: 'dark', dark: 'auto' }[themeMode]; applyTheme(themeMode); };
+mql.addEventListener('change', () => { if (themeMode === 'auto') draw(); });
+applyTheme(themeMode);
+renderFiles(); resolveMaps(); resize(); onSelectionChange();
+</script>
+</body>
+</html>

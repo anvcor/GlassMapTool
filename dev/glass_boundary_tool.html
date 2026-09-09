@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>CODE V Glass Boundary Tool</title>
+<style>
+  :root { --bg:#f6f7f9; --panel:#fff; --line:#d5d9e0; --txt:#222; --mute:#777; --acc:#1e88e5; --warn:#d84315; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 13px/1.4 system-ui, "Microsoft YaHei", sans-serif; color:var(--txt); background:var(--bg); height:100vh; display:flex; }
+  #left { width: 360px; min-width:300px; padding:10px; overflow-y:auto; background:var(--panel); border-right:1px solid var(--line); }
+  #right { flex:1; display:flex; flex-direction:column; min-width:0; }
+  h3 { margin:12px 0 6px; font-size:13px; color:#444; border-bottom:1px solid var(--line); padding-bottom:3px; }
+  .row { display:flex; gap:6px; align-items:center; margin:4px 0; }
+  .row label { width:52px; color:var(--mute); }
+  input[type=text] { flex:1; padding:4px 6px; border:1px solid var(--line); border-radius:3px; font-family: Consolas, monospace; }
+  input.fict { background:#fff8e1; }
+  button { padding:4px 10px; border:1px solid var(--line); border-radius:3px; background:#f0f2f5; cursor:pointer; }
+  button.pri { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button:disabled { opacity:.5; cursor:default; }
+  .cats { display:grid; grid-template-columns: 1fr 1fr; gap:2px 8px; }
+  .cats label { white-space:nowrap; }
+  .cats .n { color:var(--mute); }
+  #tabs { display:flex; border-bottom:1px solid var(--line); background:var(--panel); }
+  #tabs div { padding:8px 16px; cursor:pointer; border-right:1px solid var(--line); }
+  #tabs div.on { background:var(--bg); font-weight:bold; border-bottom:2px solid var(--acc); }
+  #cv { flex:1; width:100%; background:#fff; cursor:crosshair; }
+  #tip { position:fixed; pointer-events:none; background:#222; color:#fff; padding:3px 6px; border-radius:3px; font-size:12px; display:none; z-index:9; }
+  textarea { width:100%; font: 12px Consolas, monospace; border:1px solid var(--line); border-radius:3px; padding:5px; resize:vertical; }
+  #status { color:var(--mute); margin-top:6px; min-height:18px; }
+  #status.warn { color:var(--warn); }
+  .nudge { display:grid; grid-template-columns: repeat(3, 1fr); gap:3px; width:150px; }
+  #inside { max-height:160px; overflow:auto; border:1px solid var(--line); padding:4px; font-family:Consolas, monospace; font-size:12px; background:#fafafa; }
+  .hint { color:var(--mute); font-size:12px; }
+  #foot { padding:4px 10px; color:var(--mute); background:var(--panel); border-top:1px solid var(--line); display:flex; gap:16px; }
+</style>
+</head>
+<body>
+<div id="left">
+  <h3>数据源</h3>
+  <div class="row">
+    <label><input type="radio" name="src" value="cv" checked> CODE V 内置库</label>
+    <label style="width:auto"><input type="radio" name="src" value="xlsx"> 厂商数据表 (xlsx)</label>
+  </div>
+  <div class="cats" id="cats"></div>
+  <div class="row" style="margin-top:4px">
+    <button id="catAll">全选</button><button id="catNone">全不选</button>
+    <span class="hint" id="catCount"></span>
+  </div>
+
+  <h3>查找玻璃</h3>
+  <div class="row">
+    <input type="text" id="q" placeholder="例如 HK9L / H-K9L / NBK7">
+    <button id="find" class="pri">Find</button>
+    <button id="addFound" title="把找到的玻璃加为边界点">＋角点</button>
+  </div>
+  <div class="hint" id="findInfo"></div>
+
+  <h3>边界角点 (3–5 个，nd vs nF−nC 凸多边形)</h3>
+  <div id="corners"></div>
+  <div class="row">
+    <label>面范围</label><input type="text" id="surf" placeholder="留空=所有可变玻璃，如 S1..I 或 S3..8">
+  </div>
+  <div class="row">
+    <label>变焦</label><input type="text" id="zoom" placeholder="留空=全部，如 Z1..3">
+  </div>
+  <div class="row">
+    <button id="draw" class="pri">Draw</button>
+    <button id="hull" title="按凸包重新排序角点">凸包排序</button>
+    <button id="clear">Clear</button>
+    <button id="def" title="CODE V 默认边界">默认</button>
+  </div>
+  <div class="hint">画布上点击玻璃点可直接添加/移除角点。角点也可填假想玻璃 <code>1.517:64.2</code> 或 <code>517642</code>。</div>
+
+  <h3>微调选中角点 (变为假想玻璃 nd:Vd)</h3>
+  <div class="row">
+    <label>角点</label>
+    <select id="nsel"></select>
+    <label style="width:auto">步长 nd</label><input type="text" id="stepN" value="0.005" style="width:56px;flex:none">
+    <label style="width:auto">nF−nC</label><input type="text" id="stepD" value="0.0005" style="width:56px;flex:none">
+  </div>
+  <div class="nudge" id="nudge"></div>
+
+  <h3>输出 (AUT 内使用)</h3>
+  <textarea id="out" rows="4" readonly></textarea>
+  <div class="row">
+    <button id="copy">复制</button>
+    <button id="parse" title="把下面文本框中的 GLA 命令解析回角点">解析 GLA ↓</button>
+  </div>
+  <textarea id="in" rows="2" placeholder="粘贴已有的 GLA 命令，如: GLA S1..I NFK5_SCHOTT NSK16_SCHOTT NLAF2_SCHOTT SF4_SCHOTT"></textarea>
+  <div id="status"></div>
+
+  <h3>边界内玻璃 <span id="insideN" class="hint"></span></h3>
+  <div id="inside"></div>
+</div>
+
+<div id="right">
+  <div id="tabs">
+    <div class="on" data-t="cv">CODE V 图 (nd vs nF−nC)</div>
+    <div data-t="abbe">阿贝图 (nd vs Vd)</div>
+  </div>
+  <canvas id="cv"></canvas>
+  <div id="foot"><span>滚轮缩放 · 拖拽平移 · 双击复位</span><span id="cursor"></span></div>
+</div>
+<div id="tip"></div>
+
+<script src="../web/glasses.js"></script>
+<script>
+// ---------- 数据 ----------
+const SRC = { cv: window.GLASS_DATA || [], xlsx: window.GLASS_XLSX || [] };
+let src = 'cv';
+let glasses = [];          // 当前源全部
+let shown = [];            // 勾选目录后的
+const enabled = { cv: new Set(['SCHOTT','OHARA','CDGM','HOYA']), xlsx: null };
+const DEFAULT_CORNERS = ['NFK5_SCHOTT','NSK16_SCHOTT','NLAF2_SCHOTT','SF4_SCHOTT']; // Optimization RM ch5 GLA 默认
+
+// 角点: {label, nd, dn, fict:boolean}
+let corners = [];
+let polygon = null;        // 绘制后的角点数组 (已排序)
+let found = null;
+let tab = 'cv';
+
+function catsOf(list){ const m={}; list.forEach(g=>m[g.cat]=(m[g.cat]||0)+1); return m; }
+
+function buildCats(){
+  glasses = SRC[src];
+  const m = catsOf(glasses);
+  if (!enabled[src]) enabled[src] = new Set(Object.keys(m));
+  const box = document.getElementById('cats'); box.innerHTML='';
+  Object.keys(m).sort().forEach(c=>{
+    const l=document.createElement('label');
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=enabled[src].has(c);
+    cb.onchange=()=>{ cb.checked?enabled[src].add(c):enabled[src].delete(c); refresh(); };
+    l.appendChild(cb); l.append(' '+c+' '); const n=document.createElement('span'); n.className='n'; n.textContent='('+m[c]+')'; l.appendChild(n);
+    box.appendChild(l);
+  });
+  refresh();
+}
+function refresh(){
+  shown = glasses.filter(g=>enabled[src].has(g.cat));
+  document.getElementById('catCount').textContent = shown.length+' / '+glasses.length;
+  draw();
+  if (polygon) updateInside();
+}
+
+// ---------- 名称解析 ----------
+function norm(s){ return s.replace(/[\s\-]/g,'').toUpperCase(); }
+function lookup(text){
+  // 返回 {label, nd, dn, fict}
+  let t = text.trim(); if(!t) return null;
+  let m;
+  if ((m = t.match(/^(\d*\.\d+)\s*:\s*(\d*\.?\d+)$/))) {          // index:V
+    const nd=+m[1], vd=+m[2]; return {label:t, nd, dn:(nd-1)/vd, fict:true};
+  }
+  if ((m = t.match(/^(\d{3})\.(\d{3})$/))) {                         // xxx.yyy 假想码
+    const nd=1+m[1]/1000, vd=m[2]/10; return {label:t, nd, dn:(nd-1)/vd, fict:true};
+  }
+  if ((m = t.match(/^(\d{3})(\d{3})$/))) {                            // 6 位码 -> 先查目录
+    const hit = glasses.find(g=>g.code===t) || SRC.cv.find(g=>g.code===t);
+    if (hit) return {label:hit.name+'_'+hit.cat, nd:hit.nd, dn:hit.dn, fict:false};
+    const nd=1+m[1]/1000, vd=m[2]/10; return {label:t, nd, dn:(nd-1)/vd, fict:true};
+  }
+  let [name, cat] = t.split('_'); name = norm(name); cat = cat && cat.toUpperCase();
+  const pool = [shown, glasses, SRC.cv, SRC.xlsx];
+  for (const p of pool) {
+    const hit = p.find(g=> g.name===name && (!cat || g.cat===cat)) || p.find(g=> g.vendor_name && norm(g.vendor_name)===name && (!cat||g.cat===cat));
+    if (hit) return {label:hit.name+'_'+hit.cat, nd:hit.nd, dn:hit.dn, fict:false, g:hit};
+  }
+  return null;
+}
+
+// ---------- 角点 UI ----------
+function renderCorners(){
+  const box=document.getElementById('corners'); box.innerHTML='';
+  for (let i=0;i<5;i++){
+    const r=document.createElement('div'); r.className='row';
+    const l=document.createElement('label'); l.textContent='Map '+(i+1)+':';
+    const inp=document.createElement('input'); inp.type='text'; inp.dataset.i=i;
+    const c=corners[i];
+    if (c){ inp.value=c.label; if(c.fict) inp.classList.add('fict'); inp.title=`nd=${c.nd.toFixed(5)}  nF-nC=${c.dn.toFixed(5)}  Vd=${((c.nd-1)/c.dn).toFixed(2)}`; }
+    inp.onchange=()=>{ const v=lookup(inp.value); if(inp.value.trim() && !v){ setStatus('找不到玻璃: '+inp.value,true); inp.value=''; }
+      corners[i]=v||undefined; corners=corners.filter(Boolean).concat(); renderCorners(); draw(); };
+    r.appendChild(l); r.appendChild(inp); box.appendChild(r);
+  }
+  const sel=document.getElementById('nsel'); sel.innerHTML='';
+  corners.forEach((c,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=(i+1)+'  '+c.label; sel.appendChild(o); });
+}
+function toggleCorner(g){
+  const label=g.name+'_'+g.cat;
+  const i=corners.findIndex(c=>c.label===label);
+  if (i>=0) corners.splice(i,1);
+  else if (corners.length>=5) { setStatus('最多 5 个角点 (GLA 命令限制)',true); return; }
+  else corners.push({label, nd:g.nd, dn:g.dn, fict:false, g});
+  renderCorners(); draw();
+}
+
+// ---------- 几何 ----------
+function cross(o,a,b){ return (a.dn-o.dn)*(b.nd-o.nd)-(a.nd-o.nd)*(b.dn-o.dn); }
+function convexHull(pts){
+  const p=[...pts].sort((a,b)=>a.dn-b.dn||a.nd-b.nd);
+  if (p.length<3) return p;
+  const lo=[]; for(const q of p){ while(lo.length>=2 && cross(lo[lo.length-2],lo[lo.length-1],q)<=0) lo.pop(); lo.push(q);}
+  const up=[]; for(const q of p.reverse()){ while(up.length>=2 && cross(up[up.length-2],up[up.length-1],q)<=0) up.pop(); up.push(q);}
+  return lo.slice(0,-1).concat(up.slice(0,-1));
+}
+function inPoly(pt, poly){
+  let inside=false;
+  for (let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const a=poly[i], b=poly[j];
+    if ((a.nd>pt.nd)!==(b.nd>pt.nd) && pt.dn < (b.dn-a.dn)*(pt.nd-a.nd)/(b.nd-a.nd)+a.dn) inside=!inside;
+  }
+  return inside;
+}
+function doDraw(){
+  if (corners.length<3){ setStatus('至少需要 3 个角点',true); polygon=null; draw(); return; }
+  const hull=convexHull(corners);
+  const dropped=corners.filter(c=>!hull.includes(c));
+  if (dropped.length){ setStatus('非凸：'+dropped.map(c=>c.label).join(', ')+' 落在其它角点围成的区域内，CODE V 会忽略。点"凸包排序"自动剔除。',true); }
+  else setStatus('');
+  polygon=hull; corners=hull.concat(dropped);   // 排序后保持顺序一致
+  renderCorners(); emit(); updateInside(); draw();
+}
+function emit(){
+  if(!polygon) return;
+  const s=document.getElementById('surf').value.trim(), z=document.getElementById('zoom').value.trim();
+  let line='GLA'+(s?' '+s.toUpperCase():'')+(z?' '+z.toUpperCase():'')+' '+polygon.map(c=>c.label).join(' ');
+  let txt=line+'\n';
+  txt+='! 角点 (nd / nF-nC / Vd):\n'+polygon.map(c=>`!   ${c.label.padEnd(16)} ${c.nd.toFixed(5)}  ${c.dn.toFixed(5)}  ${((c.nd-1)/c.dn).toFixed(2)}`).join('\n');
+  document.getElementById('out').value=txt;
+}
+function updateInside(){
+  const box=document.getElementById('inside'); box.innerHTML='';
+  if(!polygon) return;
+  const ins=shown.filter(g=>inPoly(g,polygon)).sort((a,b)=>a.cat.localeCompare(b.cat)||a.nd-b.nd);
+  const bycat={}; ins.forEach(g=>bycat[g.cat]=(bycat[g.cat]||0)+1);
+  document.getElementById('insideN').textContent = ins.length+' 个  ('+Object.entries(bycat).map(([k,v])=>k+':'+v).join(', ')+')';
+  box.textContent = ins.map(g=>`${(g.name+'_'+g.cat).padEnd(20)} ${g.nd.toFixed(4)}  ${g.vd.toFixed(1)}`).join('\n');
+}
+function parseGLA(){
+  const t=document.getElementById('in').value.trim(); if(!t) return;
+  const tok=t.replace(/!.*$/gm,'').trim().split(/\s+/);
+  if (tok[0].toUpperCase()!=='GLA'){ setStatus('不是 GLA 命令',true); return; }
+  const cs=[]; let surf='', zoom='';
+  for (const w of tok.slice(1)){
+    if (/^S[\dI.]+$/i.test(w)) { surf=w; continue; }
+    if (/^Z[\d.]+$/i.test(w)) { zoom=w; continue; }
+    const v=lookup(w); if(!v){ setStatus('找不到: '+w,true); return; } cs.push(v);
+  }
+  document.getElementById('surf').value=surf; document.getElementById('zoom').value=zoom;
+  corners=cs.slice(0,5); renderCorners(); doDraw();
+}
+function nudge(dx,dy){
+  const i=+document.getElementById('nsel').value; const c=corners[i]; if(!c) return;
+  const sn=+document.getElementById('stepN').value||0.005, sd=+document.getElementById('stepD').value||0.0005;
+  c.nd+=dy*sn; c.dn+=dx*sd; c.fict=true; delete c.g;
+  c.label=c.nd.toFixed(4)+':'+((c.nd-1)/c.dn).toFixed(2);
+  renderCorners(); document.getElementById('nsel').value=i;
+  if (polygon) doDraw(); else draw();
+}
+function setStatus(s,warn){ const e=document.getElementById('status'); e.textContent=s; e.className=warn?'warn':''; }
+
+// ---------- 画布 ----------
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const view={ cv:{x0:0.003,x1:0.05,y0:1.40,y1:2.15}, abbe:{x0:95,x1:15,y0:1.40,y1:2.15} };  // abbe x 反向
+let V=null, hover=null, dragging=null;
+const M={l:60,r:20,t:20,b:40};
+function X(g){ return tab==='cv'?g.dn:(g.nd-1)/g.dn; }
+function px(x){ return M.l+(x-V.x0)/(V.x1-V.x0)*(cv.width-M.l-M.r); }
+function py(y){ return cv.height-M.b-(y-V.y0)/(V.y1-V.y0)*(cv.height-M.t-M.b); }
+function resize(){ cv.width=cv.clientWidth; cv.height=cv.clientHeight; draw(); }
+function niceStep(range,n){ const r=range/n, p=Math.pow(10,Math.floor(Math.log10(r))); for(const k of [1,2,2.5,5,10]) if(k*p>=r) return k*p; return 10*p; }
+function draw(){
+  if(!V) V={...view[tab]};
+  ctx.clearRect(0,0,cv.width,cv.height);
+  const W=cv.width,H=cv.height;
+  // 网格
+  ctx.strokeStyle='#e5e8ec'; ctx.fillStyle='#555'; ctx.font='11px system-ui'; ctx.lineWidth=1;
+  const xs=niceStep(Math.abs(V.x1-V.x0),8), ys=niceStep(V.y1-V.y0,8);
+  const xa=Math.min(V.x0,V.x1), xb=Math.max(V.x0,V.x1);
+  for(let x=Math.ceil(xa/xs)*xs; x<=xb; x+=xs){ const p=px(x); ctx.beginPath(); ctx.moveTo(p,M.t); ctx.lineTo(p,H-M.b); ctx.stroke(); ctx.textAlign='center'; ctx.fillText(+x.toFixed(6),p,H-M.b+14); }
+  for(let y=Math.ceil(V.y0/ys)*ys; y<=V.y1; y+=ys){ const p=py(y); ctx.beginPath(); ctx.moveTo(M.l,p); ctx.lineTo(W-M.r,p); ctx.stroke(); ctx.textAlign='right'; ctx.fillText(+y.toFixed(4),M.l-5,p+4); }
+  ctx.strokeStyle='#999'; ctx.strokeRect(M.l,M.t,W-M.l-M.r,H-M.t-M.b);
+  ctx.fillStyle='#333'; ctx.textAlign='center'; ctx.fillText(tab==='cv'?'nF − nC':'Vd',(M.l+W-M.r)/2,H-6);
+  ctx.save(); ctx.translate(14,(M.t+H-M.b)/2); ctx.rotate(-Math.PI/2); ctx.fillText('nd',0,0); ctx.restore();
+  // 多边形 (阿贝图上边为曲线，按 dn-nd 空间采样)
+  const poly = polygon || (corners.length>=3 ? convexHull(corners) : null);
+  if (poly){
+    ctx.beginPath();
+    poly.forEach((c,i)=>{ const n=poly[(i+1)%poly.length];
+      for(let k=0;k<=20;k++){ const t=k/20, pt={nd:c.nd+(n.nd-c.nd)*t, dn:c.dn+(n.dn-c.dn)*t}; const xx=px(X(pt)), yy=py(pt.nd); (i===0&&k===0)?ctx.moveTo(xx,yy):ctx.lineTo(xx,yy); } });
+    ctx.closePath(); ctx.fillStyle=polygon?'rgba(30,136,229,.10)':'rgba(30,136,229,.04)'; ctx.fill();
+    ctx.strokeStyle=polygon?'#1e88e5':'#90caf9'; ctx.lineWidth=1.5; ctx.setLineDash(polygon?[]:[5,4]); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // 点
+  ctx.beginPath();
+  for(const g of shown){ const x=px(X(g)), y=py(g.nd); if(x<M.l||x>W-M.r||y<M.t||y>H-M.b) continue; ctx.moveTo(x+2.2,y); ctx.arc(x,y,2.2,0,7); }
+  ctx.fillStyle= polygon ? '#b0b7c3' : '#5a6b85'; ctx.fill();
+  if (polygon){ ctx.beginPath(); for(const g of shown){ if(!inPoly(g,polygon)) continue; const x=px(X(g)), y=py(g.nd); ctx.moveTo(x+2.5,y); ctx.arc(x,y,2.5,0,7);} ctx.fillStyle='#2e7d32'; ctx.fill(); }
+  // 角点
+  corners.forEach((c,i)=>{ const x=px(X(c)), y=py(c.nd); ctx.beginPath(); ctx.arc(x,y,5,0,7); ctx.fillStyle=c.fict?'#ffb300':'#e53935'; ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle='#b71c1c'; ctx.font='bold 11px system-ui'; ctx.textAlign='left'; ctx.fillText((i+1)+' '+c.label, x+7, y-6); });
+  if (found){ const x=px(X(found)), y=py(found.nd); ctx.strokeStyle='#6a1b9a'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,8,0,7); ctx.stroke(); ctx.fillStyle='#6a1b9a'; ctx.font='bold 12px system-ui'; ctx.textAlign='left'; ctx.fillText(found.name+'_'+found.cat,x+10,y+4); }
+}
+function nearest(mx,my){
+  let best=null,bd=64;
+  for(const g of shown){ const dx=px(X(g))-mx, dy=py(g.nd)-my, d=dx*dx+dy*dy; if(d<bd){bd=d;best=g;} }
+  return best;
+}
+cv.addEventListener('mousemove',e=>{
+  const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  if (dragging){ const dx=(mx-dragging.mx)/(cv.width-M.l-M.r)*(V.x1-V.x0), dy=(my-dragging.my)/(cv.height-M.t-M.b)*(V.y1-V.y0);
+    V.x0=dragging.v.x0-dx; V.x1=dragging.v.x1-dx; V.y0=dragging.v.y0+dy; V.y1=dragging.v.y1+dy; draw(); return; }
+  const xv=V.x0+(mx-M.l)/(cv.width-M.l-M.r)*(V.x1-V.x0), yv=V.y0+(cv.height-M.b-my)/(cv.height-M.t-M.b)*(V.y1-V.y0);
+  document.getElementById('cursor').textContent=(tab==='cv'?'nF−nC=':'Vd=')+xv.toFixed(tab==='cv'?5:2)+'  nd='+yv.toFixed(4);
+  hover=nearest(mx,my); const tip=document.getElementById('tip');
+  if(hover){ tip.style.display='block'; tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px';
+    tip.textContent=`${hover.name}_${hover.cat}${hover.vendor_name?' ('+hover.vendor_name+')':''}  nd=${hover.nd.toFixed(5)}  Vd=${hover.vd.toFixed(2)}  nF−nC=${hover.dn.toFixed(5)}`; }
+  else tip.style.display='none';
+});
+cv.addEventListener('mousedown',e=>{ const r=cv.getBoundingClientRect(); dragging={mx:e.clientX-r.left,my:e.clientY-r.top,v:{...V},moved:false}; });
+window.addEventListener('mouseup',e=>{ if(!dragging) return; const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const moved=Math.abs(mx-dragging.mx)+Math.abs(my-dragging.my)>3; dragging=null; if(!moved && e.target===cv){ const g=nearest(mx,my); if(g) toggleCorner(g);} });
+cv.addEventListener('wheel',e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const f=e.deltaY>0?1.15:1/1.15; const xv=V.x0+(mx-M.l)/(cv.width-M.l-M.r)*(V.x1-V.x0), yv=V.y0+(cv.height-M.b-my)/(cv.height-M.t-M.b)*(V.y1-V.y0);
+  V.x0=xv-(xv-V.x0)*f; V.x1=xv+(V.x1-xv)*f; V.y0=yv-(yv-V.y0)*f; V.y1=yv+(V.y1-yv)*f; draw(); },{passive:false});
+cv.addEventListener('dblclick',()=>{ V={...view[tab]}; draw(); });
+cv.addEventListener('mouseleave',()=>{ document.getElementById('tip').style.display='none'; });
+
+// ---------- 事件 ----------
+document.querySelectorAll('#tabs div').forEach(d=>d.onclick=()=>{ document.querySelectorAll('#tabs div').forEach(x=>x.classList.remove('on')); d.classList.add('on'); tab=d.dataset.t; V={...view[tab]}; draw(); });
+document.querySelectorAll('input[name=src]').forEach(r=>r.onchange=()=>{ src=r.value; buildCats(); });
+document.getElementById('catAll').onclick=()=>{ enabled[src]=new Set(Object.keys(catsOf(glasses))); buildCats(); };
+document.getElementById('catNone').onclick=()=>{ enabled[src]=new Set(); buildCats(); };
+document.getElementById('find').onclick=()=>{ const v=lookup(document.getElementById('q').value); found=v&&v.g||null;
+  document.getElementById('findInfo').textContent = found?`${found.name}_${found.cat}  nd=${found.nd.toFixed(5)}  Vd=${found.vd.toFixed(2)}  nF−nC=${found.dn.toFixed(5)}${polygon?(inPoly(found,polygon)?'  ✔ 在边界内':'  ✘ 在边界外'):''}`:'未找到';
+  if(found && !enabled[src].has(found.cat)) { enabled[src].add(found.cat); buildCats(); } draw(); };
+document.getElementById('q').onkeydown=e=>{ if(e.key==='Enter') document.getElementById('find').onclick(); };
+document.getElementById('addFound').onclick=()=>{ if(found) toggleCorner(found); };
+document.getElementById('draw').onclick=doDraw;
+document.getElementById('hull').onclick=()=>{ corners=convexHull(corners); renderCorners(); doDraw(); };
+document.getElementById('clear').onclick=()=>{ corners=[]; polygon=null; found=null; renderCorners(); document.getElementById('out').value=''; document.getElementById('inside').innerHTML=''; document.getElementById('insideN').textContent=''; setStatus(''); draw(); };
+document.getElementById('def').onclick=()=>{ corners=DEFAULT_CORNERS.map(lookup).filter(Boolean); renderCorners(); doDraw(); };
+document.getElementById('copy').onclick=()=>{ const t=document.getElementById('out'); t.select(); navigator.clipboard?.writeText(t.value); setStatus('已复制'); };
+document.getElementById('parse').onclick=parseGLA;
+['surf','zoom'].forEach(id=>document.getElementById(id).oninput=emit);
+const NUD=[['↖',-1,1],['↑',0,1],['↗',1,1],['←',-1,0],['·',0,0],['→',1,0],['↙',-1,-1],['↓',0,-1],['↘',1,-1]];
+NUD.forEach(([s,dx,dy])=>{ const b=document.createElement('button'); b.textContent=s; b.onclick=()=>nudge(dx,dy); document.getElementById('nudge').appendChild(b); });
+
+window.addEventListener('resize',resize);
+buildCats(); renderCorners(); resize();
+</script>
+</body>
+</html>
