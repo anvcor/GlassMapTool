@@ -271,7 +271,7 @@ function onSelectionChange() {
 /* =====================================================================
    3. 玻璃查找 / 角点
    ===================================================================== */
-const DEFAULT_MAPS = ['FCD100', 'FCD705', 'TAC6', 'TAFD65', 'FDS16W'];   // 默认 HOYA 边界（原 exe 默认为 CDGM: H-FK95N H-LAK52 H-ZLAF68C H-ZLAF96 H-ZF73）
+const DEFAULT_MAPS = ['FCD100', 'FCD705', 'TAC6', 'TAFD65', 'FDS16W'];   // 默认 HOYA 边界
 function norm(s) { return s.replace(/[\s\-]/g, '').toUpperCase(); }
 function findGlass(text) {
   let [nm, cat] = text.trim().split('_'); nm = norm(nm); cat = cat && cat.toUpperCase();

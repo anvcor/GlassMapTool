@@ -9,10 +9,9 @@
 
 | 目录 | 内容 |
 |---|---|
-| [`web/`](web/) | 正式版 `GlassMapTool.html`，是原 MATLAB 版 `GlassMapTool.exe` 的网页复刻并扩展了 GLA 生成；`samples/` 为 CDGM / HIKARI / HOYA / OHARA 官方数据表示例；`glasses.js` 是内置的 CODE V 20 个厂商库数据 |
+| [`web/`](web/) | 正式版 `GlassMapTool.html`；`samples/` 为 CDGM / HIKARI / HOYA / OHARA 官方数据表示例；`glasses.js` 是内置的 CODE V 20 个厂商库数据 |
 | [`dev/`](dev/) | 开发版页面与数据提取脚本（`extract_glass.py` 解析 CODE V `glass/*.xml`，`extract_xlsx.py` 解析厂商 xlsx） |
 
-原 MATLAB 编译的 exe 与其安装器不在仓库内（见 `.gitignore`）。
 
 ## 本地运行
 

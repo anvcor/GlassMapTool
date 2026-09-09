@@ -1,4 +1,4 @@
-# MATLAB 编译产物与安装器（原 exe，非源码，体积大）
+# 本地二进制产物（不入库）
 application/
 uninstall/
 default_icon_48.png
