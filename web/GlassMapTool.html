@@ -259,11 +259,20 @@ async function addFiles(fileList) {
   renderFiles(); onSelectionChange();
   if (n) { const e = document.getElementById('status'); e.textContent = `已载入 ${n} 个文件。 ` + e.textContent; }
 }
-let shown = [];
+/* 不常用的特殊玻璃（如 CDGM 的 HWS 系列，Vd 只有 2–10，远离主体玻璃区）：默认不显示、不参与自动边界，
+   只有当它是角点、落在当前边界内或被 Find 搜到时才显示 */
+const RARE = [/^HWS\d/];
+const isRare = g => RARE.some(r => r.test(g.cv));
+let pool = [], common = [], shown = [];   // pool 所选库全部；common 去掉特殊玻璃；shown 实际显示
+function refreshShown() {
+  const live = corners.filter(Boolean), hull = polygon || (live.length >= 3 ? convexHull(live) : null);
+  shown = pool.filter(g => !isRare(g) || g === found || live.some(c => c.g === g) || (hull && inPoly(g, hull)));
+}
 function onSelectionChange() {
-  shown = sources.filter(s => selected.has(s.id)).flatMap(s => s.glasses);
+  pool = sources.filter(s => selected.has(s.id)).flatMap(s => s.glasses);
+  common = pool.filter(g => !isRare(g)); shown = common;
   resolveMaps();
-  if (document.getElementById('autoDraw').checked && shown.length) autoBoundary();
+  if (document.getElementById('autoDraw').checked && common.length) autoBoundary();
   else if (polygon) doDraw(true);
   home();
 }
@@ -316,8 +325,8 @@ function autoBoundary() {
   // Auto-Draw：Map 框里能解析的照用；解析不到的（例如换了厂商表）用随机玻璃补齐到 5 个，再取凸包画出
   const live = corners.filter(Boolean);
   const need = 5 - live.length;
-  if (need > 0 && shown.length >= 3) {
-    const pool = shown.filter(g => !live.some(c => c.g === g));
+  if (need > 0 && common.length >= 3) {
+    const pool = common.filter(g => !live.some(c => c.g === g));
     for (let k = 0; k < need && pool.length; k++) {
       const g = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
       const i = corners.findIndex(c => !c);
@@ -350,7 +359,7 @@ function doDraw(quiet) {
   const live = corners.filter(Boolean);
   if (live.length < 3) { if (!quiet) setStatus('至少需要 3 个可识别的角点', 'warn'); polygon = null; draw(); return; }
   const hull = convexHull(live), dropped = live.filter(c => !hull.includes(c));
-  polygon = hull; emit(); updateInside(); draw();
+  polygon = hull; refreshShown(); emit(); updateInside(); draw();
   const ins = shown.filter(g => inPoly(g, polygon)).length;
   if (dropped.length) setStatus(`Boundary drawn: ${hull.length} corners, ${ins} glasses inside.\n注意：${dropped.map(c => c.label).join(', ')} 在凸包内部，GLA 只接受凸多边形，已从命令中剔除。`, 'warn');
   else setStatus(`Boundary drawn: ${hull.length} corners, ${ins} glasses inside.`, 'ok');
@@ -455,12 +464,12 @@ function peelOutliers(pts, target, outlierFrac) {
   return { kept: cur, removed };
 }
 function autoMaxCoverage() {
-  if (shown.length < 3) { setStatus('先在列表里选择玻璃库', 'warn'); return; }
+  if (common.length < 3) { setStatus('先在列表里选择玻璃库', 'warn'); return; }
   const mode = document.getElementById('autoMode').value;
   const target = Math.min(1, Math.max(0.5, (parseFloat(document.getElementById('cover').value) || 97) / 100));
-  const { kept, removed } = peelOutliers(shown, target, 0.004);
+  const { kept, removed } = peelOutliers(common, target, 0.004);
   const hull = convexHull(kept);
-  const countIn = poly => { let n = 0; for (const g of shown) if (insideConvex(g, poly)) n++; return n; };
+  const countIn = poly => { let n = 0; for (const g of common) if (insideConvex(g, poly)) n++; return n; };
   let pick = null, fict = false;
   if (hull.length <= 5) pick = hull;
   else if (mode === 'fict') { const poly = shrinkHull(hull, 5); if (poly) { pick = poly; fict = true; } }
@@ -480,10 +489,10 @@ function autoMaxCoverage() {
     corners[i] = c; mapText[i] = c.label;
   });
   renderMaps(); doDraw(true);
-  const miss = shown.filter(g => !insideConvex(g, polygon));
-  const pct = ((shown.length - miss.length) / shown.length * 100).toFixed(1);
-  setStatus(`Auto boundary (${fict ? '假想角点' : '真实玻璃角点'}): cover ${shown.length - miss.length} / ${shown.length} (${pct}%)，剥离离群 ${removed.length} 块，凸包 ${hull.length} 顶点`
-    + (miss.length ? `\n未覆盖: ${miss.slice(0, 15).map(g => g.name).join(', ')}${miss.length > 15 ? ' …' : ''}` : ''), miss.length && (shown.length - miss.length) < target * shown.length ? 'warn' : 'ok');
+  const miss = common.filter(g => !insideConvex(g, polygon));
+  const pct = ((common.length - miss.length) / common.length * 100).toFixed(1);
+  setStatus(`Auto boundary (${fict ? '假想角点' : '真实玻璃角点'}): cover ${common.length - miss.length} / ${common.length} (${pct}%)，剥离离群 ${removed.length} 块，凸包 ${hull.length} 顶点`
+    + (miss.length ? `\n未覆盖: ${miss.slice(0, 15).map(g => g.name).join(', ')}${miss.length > 15 ? ' …' : ''}` : ''), miss.length && (common.length - miss.length) < target * common.length ? 'warn' : 'ok');
 }
 function setStatus(s, cls) { const e = document.getElementById('status'); e.textContent = s; e.className = cls || ''; }
 
@@ -502,6 +511,7 @@ function niceStep(range, n) { const r = range / n, p = Math.pow(10, Math.floor(M
 function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; draw(); }
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function draw() {
+  refreshShown();
   const W = cv.width, H = cv.height; ctx.clearRect(0, 0, W, H);
   const T = { plot: css('--plot'), grid: css('--grid'), axis: css('--axis'), axtxt: css('--axtxt'), txt: css('--txt') };
   ctx.fillStyle = T.plot; ctx.fillRect(0, 0, W, H);
@@ -614,7 +624,7 @@ document.querySelectorAll('#tabs div').forEach(d => d.onclick = () => { document
 document.getElementById('find').onclick = () => {
   const q = document.getElementById('q').value; found = findGlass(q);
   document.getElementById('findInfo').textContent = found ? `${found.name} [${found.cat}]  nd=${found.nd.toFixed(5)}  Vd=${found.vd.toFixed(2)}  nF−nC=${found.dn.toFixed(5)}` + (polygon ? (inPoly(found, polygon) ? '   ✔ inside boundary' : '   ✘ outside boundary') : '') : (q.trim() ? `"${q}" not found in selected catalogs` : '');
-  if (found && !shown.includes(found)) { const s = sources.find(s => s.glasses.includes(found)); if (s) { selected.add(s.id); renderFiles(); shown = sources.filter(s => selected.has(s.id)).flatMap(s => s.glasses); } }
+  if (found && !shown.includes(found)) { const s = sources.find(s => s.glasses.includes(found)); if (s) { selected.add(s.id); renderFiles(); pool = sources.filter(s => selected.has(s.id)).flatMap(s => s.glasses); common = pool.filter(g => !isRare(g)); } }
   draw();
 };
 document.getElementById('q').onkeydown = e => { if (e.key === 'Enter') document.getElementById('find').onclick(); };

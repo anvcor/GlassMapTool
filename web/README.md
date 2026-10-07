@@ -18,6 +18,7 @@ python -m http.server 8765 --directory E:/GlassMapTool
 | 功能 | 说明 |
 |---|---|
 | 数据源 | 点 `...` 选文件或把厂商 xlsx 拖进列表；列表下方附带 CODE V 内置 20 个厂商库（来自 `glasses.js`，可删）。Hold Ctrl 多选 |
+| 特殊玻璃隐藏 | CDGM 的 HWS 系列（Vd 2–10）默认不显示、不参与 Auto-Draw / Auto Boundary 和自动缩放；只有当它是角点、落在当前边界内或被 Find 搜到时才显示。规则在 `RARE` 数组里，可自行增减 |
 | Auto-Draw Random Boundary | 载入/切换数据源后自动画边界：Map 1–5 能解析的照用，解析不到的用随机玻璃补齐 |
 | Search Glass Find / Clear | 找到后高亮并提示是否在边界内 |
 | Map 1–5 | 打开时默认选中 CODE V 的 HOYA 库，角点为 FCD100 FCD705 TAC6 TAFD65 FDS16W；也接受 `1.517:64.2`、`487.704`、`517642` 假想玻璃 |
