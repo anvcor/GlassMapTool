@@ -288,10 +288,11 @@ async function addFiles(fileList) {
   renderFiles(); onSelectionChange();
   if (n) { const e = document.getElementById('status'); e.textContent = `已载入 ${n} 个文件。 ` + e.textContent; }
 }
-/* 不常用的特殊玻璃（如 CDGM 的 HWS 系列，Vd 只有 2–10，远离主体玻璃区）：默认不显示、不参与自动边界，
-   只有当它是角点、落在当前边界内或被 Find 搜到时才显示 */
-const RARE = [/^HWS\d/];
-const isRare = g => RARE.some(r => r.test(g.cv));
+/* 不常用的特殊玻璃（CDGM 的 HWS 系列 Vd 2–10；NHG 的 IRG 红外材料 nd 1.29–1.97、Vd 1–74），远离主体玻璃区：
+   默认不显示、不参与自动边界，只有当它是角点、落在当前边界内或被 Find 搜到时才显示。
+   规则匹配“牌号_厂商”（如 IRG202_NHG），可以只限定某个厂商 */
+const RARE = [/^HWS\d/, /^IRG\d+_NHG$/];
+const isRare = g => RARE.some(r => r.test(g.cv + '_' + g.cat));
 let pool = [], common = [], shown = [];   // pool 所选库全部；common 去掉特殊玻璃；shown 实际显示
 function refreshShown() {
   const live = corners.filter(Boolean), hull = polygon || (live.length >= 3 ? convexHull(live) : null);
