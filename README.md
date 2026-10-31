@@ -30,5 +30,6 @@ python -m http.server 8765
 - 生成单行 `GLA` 命令并一键复制；也可解析已有 GLA 命令回显边界
 - Auto Boundary：剥离离群玻璃后按目标覆盖率自动取 5 角点
 - 角点可在图上拖动、微调，列出边界内所有牌号，导出 PNG
+- GLC 变量 → 近邻玻璃：粘贴 LDM 里的玻璃变量（如 `566548.413241`），按 GLASSFIT 度量找最近的牌号，在图上画出连线和等距线，并生成替换命令
 
 详细说明见 [web/README.md](web/README.md) 与 [dev/README.md](dev/README.md)。

@@ -55,6 +55,20 @@
   #out { width:100%; height:78px; margin-top:6px; font:12px Consolas, monospace; resize:vertical; }
   #inside { max-height:130px; overflow:auto; border:1px solid var(--line); background:var(--field); font:12px Consolas, monospace; padding:4px; margin-top:4px; white-space:pre; }
   select { height:30px; }
+  /* GLC 变量 → 近邻玻璃 */
+  #glcIn { width:100%; height:78px; flex:none; font:12px Consolas, monospace; resize:vertical; }
+  #glcList { max-height:320px; overflow:auto; border:1px solid var(--line); background:var(--field); font:12px Consolas, monospace; margin-top:4px; }
+  #glcList:empty { display:none; }
+  #glcList .gh { display:flex; justify-content:space-between; gap:8px; padding:3px 6px; font-weight:bold; cursor:pointer; border-top:1px solid var(--line); white-space:nowrap; }
+  #glcList .gh.on { background:rgba(216,27,96,.14); }
+  #glcList .gh span { font-weight:normal; color:var(--mute); }
+  #glcList .gr { display:grid; grid-template-columns:16px minmax(0,1fr) 50px 66px 50px 54px; gap:4px; padding:1px 6px; cursor:pointer; white-space:nowrap; }
+  #glcList .gr > span { overflow:hidden; text-overflow:ellipsis; }
+  #glcList .gr > span:nth-child(n+4) { text-align:right; }
+  #glcList .gr.hd { color:var(--mute); cursor:default; position:sticky; top:0; background:var(--field); border-bottom:1px solid var(--line); }
+  #glcList .gr:not(.hd):hover { background:rgba(127,127,127,.18); }
+  #glcList .gr.pick { background:var(--sel); color:#fff; }
+  #glcCmd { width:100%; height:58px; flex:none; font:12px Consolas, monospace; resize:vertical; margin-top:6px; }
 </style>
 </head>
 <body>
@@ -76,6 +90,21 @@
       <button id="findClear">Clear</button>
     </div>
     <div class="hint" id="findInfo"></div>
+
+    <div class="sec">GLC 变量 → 近邻玻璃 (GLASSFIT):</div>
+    <textarea id="glcIn" spellcheck="false" placeholder="从 LDM 复制玻璃列或整行粘贴，例如：&#10;16	球面	-28.9607	1.0500	566548.413241&#10;821974.437941&#10;1.5665:41.32"></textarea>
+    <div class="row">
+      <label title="每个变量列出几块最近的玻璃">前</label><input type="text" id="glcN" value="5" style="width:40px;flex:none;height:30px;text-align:right">
+      <label title="Δ色散权重 w：d = √(ΔNd² + (w·Δdisp)²)。&#10;GLASSFIT 里 w = disp_factor × 50 × (λ1−λn)/170.14 nm，&#10;C-d-F 三波长、disp_factor = 1 时为 50；656–436 nm 五波长为 64.8">权重 w</label><input type="text" id="glcW" value="50" style="width:52px;flex:none;height:30px;text-align:right">
+      <label title="同 GLASSFIT 默认：去掉 CODE V 库里可用性代码 3 / 4（停产）的牌号。xlsx 表没有这个字段，不受影响"><input type="checkbox" id="glcDisc" checked> 去停产</label>
+      <button id="glcClear" style="height:30px;margin-left:auto">Clear</button>
+    </div>
+    <div class="hint" id="glcInfo"></div>
+    <div id="glcList"></div>
+    <div id="glcOut" style="display:none">
+      <textarea id="glcCmd" readonly title="点候选行可换选；带表面号的变量生成 GLC Sk 100; GLA Sk 牌号（与 GLASSFIT 替换时相同）"></textarea>
+      <div class="row"><button id="glcCopy" style="height:32px">复制替换命令</button><span class="hint" style="margin:0">点候选行或图上的候选点可换选</span></div>
+    </div>
 
     <div class="sec">Boundary Points (CodeV):</div>
     <div id="maps"></div>
@@ -219,8 +248,8 @@ function parseCatalog(sheets, fileName) {
   }
   return list;
 }
-function mk(vendorName, cat, nd, dn, src) {
-  return { name: vendorName, cv: vendorName.replace(/[\s\-]/g, '').toUpperCase(), cat, nd, dn, vd: (nd - 1) / dn, src };
+function mk(vendorName, cat, nd, dn, src, avail) {
+  return { name: vendorName, cv: vendorName.replace(/[\s\-]/g, '').toUpperCase(), cat, nd, dn, vd: (nd - 1) / dn, src, avail };
 }
 
 /* =====================================================================
@@ -229,7 +258,7 @@ function mk(vendorName, cat, nd, dn, src) {
 const sources = [];           // {id, label, glasses, kind}
 let selected = new Set();     // 选中的 source id
 if (window.GLASS_DATA) {      // glasses.js 存在时，把 CODE V 内置库按厂商加入列表（可选）
-  const by = {}; for (const g of window.GLASS_DATA) (by[g.cat] = by[g.cat] || []).push(mk(g.name, g.cat, g.nd, g.dn, 'CODE V'));
+  const by = {}; for (const g of window.GLASS_DATA) (by[g.cat] = by[g.cat] || []).push(mk(g.name, g.cat, g.nd, g.dn, 'CODE V', g.avail));
   for (const c of Object.keys(by).sort()) sources.push({ id: 'cv:' + c, label: `[CODE V] ${c}.xml`, glasses: by[c], kind: 'cv' });
 }
 function renderFiles() {
@@ -266,7 +295,7 @@ const isRare = g => RARE.some(r => r.test(g.cv));
 let pool = [], common = [], shown = [];   // pool 所选库全部；common 去掉特殊玻璃；shown 实际显示
 function refreshShown() {
   const live = corners.filter(Boolean), hull = polygon || (live.length >= 3 ? convexHull(live) : null);
-  shown = pool.filter(g => !isRare(g) || g === found || live.some(c => c.g === g) || (hull && inPoly(g, hull)));
+  shown = pool.filter(g => !isRare(g) || g === found || live.some(c => c.g === g) || (hull && inPoly(g, hull)) || glcCand.has(g));
 }
 function onSelectionChange() {
   pool = sources.filter(s => selected.has(s.id)).flatMap(s => s.glasses);
@@ -274,7 +303,8 @@ function onSelectionChange() {
   resolveMaps();
   if (document.getElementById('autoDraw').checked && common.length) autoBoundary();
   else if (polygon) doDraw(true);
-  home();
+  glcRun(false);
+  glcFocus >= 0 ? glcZoom([glcVars[glcFocus]]) : home();
 }
 
 /* =====================================================================
@@ -497,6 +527,162 @@ function autoMaxCoverage() {
 function setStatus(s, cls) { const e = document.getElementById('status'); e.textContent = s; e.className = cls || ''; }
 
 /* =====================================================================
+   4b. GLC 变量 → 近邻玻璃（与 CODE V glassfit.seq 同一度量）
+   假想玻璃名 nnnnnn.vvvvvv：nd = 1.nnnnnn，Vd = vv.vvvv（glassfit.seq 也这么拆）；也接受 nd:Vd。
+   d = √(ΔNd² + (w·Δdisp)²)，disp = (nd−1)/Vd；GLASSFIT 中 w = disp_factor × 50 × (λ1−λn)/170.14。
+   ΔNd、ΔVd 的符号同 GLASSFIT：变量 − 玻璃。
+   ===================================================================== */
+let glcVars = [], glcFocus = -1, glcHi = null, hoverGlc = -1, glcTimer = 0, glcCand = new Set();
+const glcPicks = new Map();                       // `${label}|${text}` -> 选定玻璃 key，重算时保留
+const gkey = g => g.cv + '_' + g.cat;
+function parseGlc(text) {
+  const out = []; let auto = 0;
+  for (const line of text.split(/\r?\n/)) {
+    const sm = line.match(/^\s*(?:GLA\s+)?S?(\d{1,3})(?=[\s,;])/i);   // 行首表面号（LDM 整行复制时第一列）
+    const re = /(?<![\d.:\-])(?:(\d{6})\.(\d{2})(\d*)|([1-4]\.\d+)\s*:\s*(\d{1,3}(?:\.\d+)?))(?![\d.:])/g;
+    let m, k = 0;
+    while ((m = re.exec(line))) {
+      const nd = m[1] ? 1 + m[1] / 1e6 : +m[4];
+      const vd = m[1] ? parseFloat(m[2] + '.' + (m[3] || '0')) : +m[5];
+      if (!(nd > 1.2 && nd < 4.5 && vd > 5 && vd < 150)) continue;
+      const label = sm ? 'S' + sm[1] + (k ? String.fromCharCode(96 + k) : '') : 'G' + (++auto);
+      out.push({ label, surf: sm && !k ? +sm[1] : null, text: m[0].replace(/\s+/g, ''), nd, vd, dn: (nd - 1) / vd, cands: [], pick: null });
+      k++;
+    }
+  }
+  return out;
+}
+const glcW = () => { const w = parseFloat(document.getElementById('glcW').value); return w >= 0 ? w : 50; };
+function glcPool() {   // 所选库全部牌号（含 HWS 等默认隐藏的，同 GLASSFIT），按 牌号_厂商 去重；勾选“去停产”时剔除 avail 3/4
+  const disc = document.getElementById('glcDisc').checked, seen = new Set(), list = []; let nDisc = 0;
+  for (const g of pool) {
+    if (disc && (g.avail === '3' || g.avail === '4')) { nDisc++; continue; }
+    const k = gkey(g); if (seen.has(k)) continue; seen.add(k); list.push(g);
+  }
+  return { list, nDisc };
+}
+function glcRun(zoom) {
+  const N = Math.max(1, Math.min(30, parseInt(document.getElementById('glcN').value) || 5)), w = glcW();
+  const { list, nDisc } = glcPool();
+  const prev = glcVars[glcFocus], prevKey = prev && prev.label + '|' + prev.text;
+  glcVars = parseGlc(document.getElementById('glcIn').value);
+  for (const v of glcVars) {
+    v.cands = list.map(g => { const dnd = v.nd - g.nd, ddisp = v.dn - g.dn; return { g, dnd, ddisp, dvd: v.vd - g.vd, d: Math.hypot(dnd, w * ddisp) }; })
+      .sort((a, b) => a.d - b.d).slice(0, N);
+    const pk = glcPicks.get(v.label + '|' + v.text), c = v.cands.find(c => gkey(c.g) === pk) || v.cands[0];
+    v.pick = c ? c.g : null;
+  }
+  glcCand = new Set(glcVars.flatMap(v => v.cands.map(c => c.g)));   // 候选里若有默认隐藏的特殊玻璃，也让它显示出来
+  const fi = glcVars.findIndex(v => v.label + '|' + v.text === prevKey);
+  glcFocus = fi >= 0 ? fi : glcVars.length ? 0 : -1;
+  const info = document.getElementById('glcInfo'), raw = document.getElementById('glcIn').value.trim();
+  if (!raw) info.textContent = '';
+  else if (!glcVars.length) info.textContent = '没认出玻璃变量。支持 CODE V 假想玻璃 566548.413241（nd 1.566548, Vd 41.3241）或 1.5665:41.32';
+  else if (!list.length) info.textContent = '先在上面的列表里选玻璃库（Ctrl 多选）';
+  else info.textContent = `${glcVars.length} 个变量 · 在 ${[...new Set(list.map(g => g.cat))].join(' + ')} 共 ${list.length} 块中搜索`
+    + (nDisc ? `（已去停产 ${nDisc}）` : '') + ` · w = ${w}`;
+  glcRender(); glcEmit();
+  if (zoom && glcVars.length) glcZoom(glcVars); else draw();
+}
+function glcRender() {
+  const box = document.getElementById('glcList'); box.textContent = '';
+  if (!glcVars.length) return;
+  const sp = (row, txt) => { const s = document.createElement('span'); s.textContent = txt; row.appendChild(s); };
+  const sg = (x, d) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(d);
+  const hd = document.createElement('div'); hd.className = 'gr hd';
+  ['#', '玻璃', '厂商', 'ΔNd', 'ΔVd', 'd'].forEach(t => sp(hd, t));
+  hd.title = 'ΔNd、ΔVd = 变量 − 玻璃（同 GLASSFIT）；d = √(ΔNd² + (w·Δdisp)²)';
+  box.appendChild(hd);
+  glcVars.forEach((v, i) => {
+    const h = document.createElement('div'); h.className = 'gh' + (i === glcFocus ? ' on' : '');
+    const b = document.createElement('b'); b.textContent = `${v.label}  ${v.text}`; h.appendChild(b);
+    sp(h, `nd ${v.nd.toFixed(5)}  Vd ${v.vd.toFixed(2)}`);
+    h.title = '点击：在图上定位这个变量'; h.onclick = () => { glcFocus = i; glcRender(); glcZoom([v]); };
+    box.appendChild(h);
+    v.cands.forEach((c, r) => {
+      const row = document.createElement('div'); row.className = 'gr' + (c.g === v.pick ? ' pick' : '');
+      [r + 1, c.g.name, c.g.cat, sg(c.dnd, 5), sg(c.dvd, 2), c.d.toFixed(4)].forEach(t => sp(row, String(t)));
+      row.title = `${c.g.name} [${c.g.cat}]  nd=${c.g.nd.toFixed(5)}  Vd=${c.g.vd.toFixed(2)}  nF−nC=${c.g.dn.toFixed(5)}\nΔDisp=${sg(c.ddisp, 6)}  avail=${c.g.avail ?? '—'}  (${c.g.src})\n点击选为 ${v.label} 的替换玻璃`;
+      row.onclick = () => glcSetPick(i, c.g);
+      row.onmouseenter = () => { glcHi = c.g; draw(); };
+      row.onmouseleave = () => { glcHi = null; draw(); };
+      box.appendChild(row);
+    });
+  });
+}
+function glcSetPick(i, g) {
+  const v = glcVars[i]; if (!v) return;
+  v.pick = g; glcPicks.set(v.label + '|' + v.text, gkey(g)); glcFocus = i;
+  glcRender(); glcEmit(); draw();
+}
+function glcEmit() {   // 与 GLASSFIT 替换时一致：先 GLC Sk 100 冻结，再 GLA Sk 牌号
+  const lines = glcVars.filter(v => v.pick).map(v => v.surf != null ? `GLC S${v.surf} 100; GLA S${v.surf} ${gkey(v.pick)}` : `! ${v.label} ${v.text} -> ${gkey(v.pick)}`);
+  document.getElementById('glcCmd').value = lines.join('\n');
+  document.getElementById('glcOut').style.display = glcVars.length ? '' : 'none';
+}
+function glcEllipse(v, r, w, n = 96) {   // GLASSFIT 等距线：ΔNd² + (w·Δdisp)² = r²，在 nd–(nF−nC) 平面是椭圆
+  const pts = [];
+  for (let k = 0; k <= n; k++) { const t = k / n * 2 * Math.PI; pts.push({ nd: v.nd + r * Math.sin(t), dn: Math.max(1e-4, v.dn + r / w * Math.cos(t)) }); }
+  return pts;
+}
+function glcZoom(list) {   // 视野套住变量、候选与等距椭圆；nd–(nF−nC) 图上按 w 定纵横比，使椭圆显示为圆、屏幕距离 = GLASSFIT 距离
+  const w = glcW(), pts = [];
+  for (const v of list) { if (!v) continue; pts.push(v); for (const c of v.cands) pts.push(c.g); if (v.cands.length && w >= 1) pts.push(...glcEllipse(v, v.cands[v.cands.length - 1].d, w, 24)); }
+  if (!pts.length) return home();
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const p of pts) { const x = X(p); if (x < x0) x0 = x; if (x > x1) x1 = x; if (p.nd < y0) y0 = p.nd; if (p.nd > y1) y1 = p.nd; }
+  let ex = Math.max((x1 - x0) * 0.2, tab === 'cv' ? 0.0003 : 0.6), ey = Math.max((y1 - y0) * 0.2, 0.004);
+  x0 -= ex; x1 += ex; y0 -= ey; y1 += ey;
+  if (tab === 'cv' && w >= 1) {
+    const pw = cv.width - M.l - M.r, ph = cv.height - M.t - M.b, ux = (x1 - x0) / pw, uy = (y1 - y0) / ph;
+    if (uy > w * ux) { const c = (x0 + x1) / 2, h = uy / w * pw / 2; x0 = c - h; x1 = c + h; }
+    else { const c = (y0 + y1) / 2, h = w * ux * ph / 2; y0 = c - h; y1 = c + h; }
+  }
+  V = tab === 'cv' ? { x0, x1, y0, y1 } : { x0: x1, x1: x0, y0, y1 };
+  draw();
+}
+function nearestGlc(mx, my, rad = 12) { let best = -1, bd = rad * rad; glcVars.forEach((v, i) => { const dx = px(X(v)) - mx, dy = py(v.nd) - my, d = dx * dx + dy * dy; if (d < bd) { bd = d; best = i; } }); return best; }
+function drawGlc() {
+  if (!glcVars.length) return;
+  const w = glcW(), C = isDark() ? '#f06292' : '#c2185b', bg = css('--plot');
+  glcVars.forEach((v, i) => {
+    const foc = i === glcFocus, vx = px(X(v)), vy = py(v.nd);
+    if (foc && v.cands.length) {
+      if (w >= 1) {
+        ctx.beginPath(); glcEllipse(v, v.cands[v.cands.length - 1].d, w).forEach((p, k) => k ? ctx.lineTo(px(X(p)), py(p.nd)) : ctx.moveTo(px(X(p)), py(p.nd)));
+        ctx.closePath(); ctx.fillStyle = 'rgba(216,27,96,.06)'; ctx.fill(); ctx.strokeStyle = C; ctx.lineWidth = 1; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
+      }
+      const groups = [];   // 像素上几乎重合的候选（如 QF3 / H-QF3）合成一个标签
+      v.cands.forEach((c, r) => {
+        const gx = px(X(c.g)), gy = py(c.g.nd), pk = c.g === v.pick;
+        ctx.strokeStyle = C; ctx.lineWidth = pk ? 2 : 1; ctx.setLineDash(pk ? [] : [3, 3]);
+        ctx.beginPath(); ctx.moveTo(vx, vy); ctx.lineTo(gx, gy); ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(gx, gy, pk ? 7 : 5, 0, 7); ctx.lineWidth = pk ? 2.5 : 1.5; ctx.stroke();
+        const gr = groups.find(q => Math.hypot(q.x - gx, q.y - gy) < 8);
+        if (gr) { gr.t.push(`${r + 1} ${c.g.name}`); gr.pk ||= pk; } else groups.push({ x: gx, y: gy, t: [`${r + 1} ${c.g.name}`], pk });
+      });
+      const placed = [];   // 标签简单避让：与已放标签重叠就往下挪一行
+      for (const q of groups) {
+        ctx.font = (q.pk ? 'bold ' : '') + '12px Segoe UI, system-ui'; ctx.textAlign = 'left';
+        const t = q.t.join(' · '), wdt = ctx.measureText(t).width, x = q.x + 9; let y = q.y + 4;
+        for (let k = 0; k < 6 && placed.some(p => x < p.x + p.w && p.x < x + wdt && Math.abs(p.y - y) < 13); k++) y += 13;
+        placed.push({ x, y, w: wdt }); ctx.fillStyle = C; ctx.fillText(t, x, y);
+      }
+    } else if (v.pick) {
+      const gx = px(X(v.pick)), gy = py(v.pick.nd);
+      ctx.strokeStyle = C; ctx.lineWidth = 1.5; ctx.globalAlpha = .7; ctx.beginPath(); ctx.moveTo(vx, vy); ctx.lineTo(gx, gy); ctx.stroke();
+      ctx.beginPath(); ctx.arc(gx, gy, 5, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    const s = foc ? 8 : 6;
+    ctx.beginPath(); ctx.moveTo(vx, vy - s); ctx.lineTo(vx + s, vy); ctx.lineTo(vx, vy + s); ctx.lineTo(vx - s, vy); ctx.closePath();
+    ctx.fillStyle = C; ctx.fill(); ctx.strokeStyle = bg; ctx.lineWidth = 1.5; ctx.stroke();
+    if (i === hoverGlc) { ctx.beginPath(); ctx.arc(vx, vy, 12, 0, 7); ctx.strokeStyle = C; ctx.lineWidth = 2; ctx.stroke(); }
+    ctx.fillStyle = C; ctx.font = 'bold 12px Segoe UI, system-ui'; ctx.textAlign = 'right'; ctx.fillText(v.label, vx - 10, vy - 8);
+  });
+  if (glcHi) { const x = px(X(glcHi)), y = py(glcHi.nd); ctx.beginPath(); ctx.arc(x, y, 11, 0, 7); ctx.strokeStyle = C; ctx.lineWidth = 3; ctx.stroke(); }
+}
+
+/* =====================================================================
    5. 绘图
    ===================================================================== */
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
@@ -538,6 +724,7 @@ function draw() {
   const cats = [...new Set(shown.map(g => g.src))], COL = ['#1f77b4', '#2ca02c', '#9467bd', '#8c564b', '#e377c2', '#17becf', '#bcbd22', '#7f7f7f'];
   cats.forEach((s, ci) => { ctx.beginPath(); for (const g of shown) { if (g.src !== s) continue; const x = px(X(g)), y = py(g.nd); ctx.moveTo(x + 2.4, y); ctx.arc(x, y, 2.4, 0, 7); } ctx.fillStyle = COL[ci % COL.length]; ctx.globalAlpha = polygon ? .45 : .9; ctx.fill(); ctx.globalAlpha = 1; });
   if (polygon) { ctx.beginPath(); for (const g of shown) { if (!inPoly(g, polygon)) continue; const x = px(X(g)), y = py(g.nd); ctx.moveTo(x + 3, y); ctx.arc(x, y, 3, 0, 7); } ctx.fillStyle = '#ff8f00'; ctx.fill(); }
+  drawGlc();
   // 角点
   corners.forEach((c, i) => { if (!c) return; const x = px(X(c)), y = py(c.nd); ctx.beginPath(); ctx.arc(x, y, i === dragCorner ? 9 : 6, 0, 7); ctx.fillStyle = c.fict ? '#ffb300' : '#e53935'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = isDark() ? '#ff8a80' : '#b71c1c'; ctx.font = 'bold 12px Segoe UI, system-ui'; ctx.textAlign = 'left'; ctx.fillText(`${i + 1}: ${c.label}`, x + 9, y - 7); });
@@ -573,9 +760,11 @@ cv.addEventListener('mousemove', e => {
   }
   if (drag) { const dx = (mx - drag.mx) / (cv.width - M.l - M.r) * (V.x1 - V.x0), dy = (my - drag.my) / (cv.height - M.t - M.b) * (V.y1 - V.y0); V.x0 = drag.v.x0 - dx; V.x1 = drag.v.x1 - dx; V.y0 = drag.v.y0 + dy; V.y1 = drag.v.y1 + dy; draw(); return; }
   hoverCorner = panMode ? -1 : nearestCorner(mx, my);
-  hover = hoverCorner >= 0 ? null : nearest(mx, my);
-  cv.style.cursor = panMode ? 'grab' : hoverCorner >= 0 ? 'move' : hover ? 'pointer' : 'crosshair';
-  if (hover) { tip.style.display = 'block'; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; const isC = corners.some(c => c && c.g === hover); tip.textContent = `${hover.name}  [${hover.cat}]  nd=${hover.nd.toFixed(5)}  Vd=${hover.vd.toFixed(2)}  nF−nC=${hover.dn.toFixed(5)}   ${isC ? '点击移除角点' : '点击设为角点'}`; }
+  hoverGlc = panMode || hoverCorner >= 0 ? -1 : nearestGlc(mx, my);
+  hover = hoverCorner >= 0 || hoverGlc >= 0 ? null : nearest(mx, my);
+  cv.style.cursor = panMode ? 'grab' : hoverCorner >= 0 ? 'move' : hover || hoverGlc >= 0 ? 'pointer' : 'crosshair';
+  if (hoverGlc >= 0) { const v = glcVars[hoverGlc], c0 = v.cands[0]; tip.style.display = 'block'; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; tip.textContent = `${v.label}  ${v.text}  nd=${v.nd.toFixed(6)}  Vd=${v.vd.toFixed(4)}  nF−nC=${v.dn.toFixed(5)}` + (c0 ? `   最近 ${c0.g.name} (d=${c0.d.toFixed(4)})` : '') + '   点击聚焦'; }
+  else if (hover) { tip.style.display = 'block'; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; const isC = corners.some(c => c && c.g === hover), fv = glcVars[glcFocus], fr = fv ? fv.cands.findIndex(c => gkey(c.g) === gkey(hover)) : -1; tip.textContent = `${hover.name}  [${hover.cat}]  nd=${hover.nd.toFixed(5)}  Vd=${hover.vd.toFixed(2)}  nF−nC=${hover.dn.toFixed(5)}   ` + (fr >= 0 ? `${fv.label} 第 ${fr + 1} 近 (d=${fv.cands[fr].d.toFixed(4)})，点击选为替换玻璃` : isC ? '点击移除角点' : '点击设为角点'); }
   else if (hoverCorner >= 0) { tip.style.display = 'block'; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; tip.textContent = `Map ${hoverCorner + 1}: ${corners[hoverCorner].label}   拖动可移动，点击移除`; }
   else tip.style.display = 'none';
   draw();
@@ -594,14 +783,19 @@ window.addEventListener('mouseup', e => {
   }
   if (!drag) return;
   const moved = Math.abs(mx - drag.mx) + Math.abs(my - drag.my) > 3; drag = null;
-  if (!moved && e.target === cv && !panMode) { const g = nearest(mx, my); if (g) toggleCorner(g); }
+  if (!moved && e.target === cv && !panMode) {
+    const gi = nearestGlc(mx, my); if (gi >= 0) { glcFocus = gi; glcRender(); draw(); return; }
+    const g = nearest(mx, my); if (!g) return;
+    const fv = glcVars[glcFocus], c = fv && fv.cands.find(c => gkey(c.g) === gkey(g));   // 聚焦变量的候选点：点击 = 换选
+    c ? glcSetPick(glcFocus, c.g) : toggleCorner(g);
+  }
 });
 cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomAt(e.deltaY > 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top); }, { passive: false });
 cv.addEventListener('dblclick', home);
 cv.addEventListener('mouseleave', () => document.getElementById('tip').style.display = 'none');
 function zoomAt(f, mx, my) { const xv = V.x0 + (mx - M.l) / (cv.width - M.l - M.r) * (V.x1 - V.x0), yv = V.y0 + (cv.height - M.b - my) / (cv.height - M.t - M.b) * (V.y1 - V.y0); V.x0 = xv - (xv - V.x0) * f; V.x1 = xv + (V.x1 - xv) * f; V.y0 = yv - (yv - V.y0) * f; V.y1 = yv + (V.y1 - yv) * f; draw(); }
 function fitView() {   // 按当前数据自动适配坐标范围（含角点），留 6% 边距
-  const pts = shown.concat(corners.filter(Boolean));
+  const pts = shown.concat(corners.filter(Boolean), glcVars);
   if (!pts.length) return { ...HOME[tab] };
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const g of pts) { const x = X(g); if (x < x0) x0 = x; if (x > x1) x1 = x; if (g.nd < y0) y0 = g.nd; if (g.nd > y1) y1 = g.nd; }
@@ -620,15 +814,20 @@ const fl = document.getElementById('files');
 fl.addEventListener('dragover', e => { e.preventDefault(); fl.style.background = '#eef5ff'; });
 fl.addEventListener('dragleave', () => fl.style.background = '#fff');
 fl.addEventListener('drop', e => { e.preventDefault(); fl.style.background = '#fff'; addFiles(e.dataTransfer.files); });
-document.querySelectorAll('#tabs div').forEach(d => d.onclick = () => { document.querySelectorAll('#tabs div').forEach(x => x.classList.remove('on')); d.classList.add('on'); tab = d.dataset.t; home(); });
+document.querySelectorAll('#tabs div').forEach(d => d.onclick = () => { document.querySelectorAll('#tabs div').forEach(x => x.classList.remove('on')); d.classList.add('on'); tab = d.dataset.t; glcFocus >= 0 ? glcZoom([glcVars[glcFocus]]) : home(); });
 document.getElementById('find').onclick = () => {
   const q = document.getElementById('q').value; found = findGlass(q);
   document.getElementById('findInfo').textContent = found ? `${found.name} [${found.cat}]  nd=${found.nd.toFixed(5)}  Vd=${found.vd.toFixed(2)}  nF−nC=${found.dn.toFixed(5)}` + (polygon ? (inPoly(found, polygon) ? '   ✔ inside boundary' : '   ✘ outside boundary') : '') : (q.trim() ? `"${q}" not found in selected catalogs` : '');
-  if (found && !shown.includes(found)) { const s = sources.find(s => s.glasses.includes(found)); if (s) { selected.add(s.id); renderFiles(); pool = sources.filter(s => selected.has(s.id)).flatMap(s => s.glasses); common = pool.filter(g => !isRare(g)); } }
+  if (found && !shown.includes(found)) { const s = sources.find(s => s.glasses.includes(found)); if (s) { selected.add(s.id); renderFiles(); pool = sources.filter(s => selected.has(s.id)).flatMap(s => s.glasses); common = pool.filter(g => !isRare(g)); glcRun(false); } }
   draw();
 };
 document.getElementById('q').onkeydown = e => { if (e.key === 'Enter') document.getElementById('find').onclick(); };
 document.getElementById('findClear').onclick = () => { found = null; document.getElementById('q').value = ''; document.getElementById('findInfo').textContent = ''; draw(); };
+document.getElementById('glcIn').addEventListener('input', () => { clearTimeout(glcTimer); glcTimer = setTimeout(() => glcRun(true), 150); });
+['glcN', 'glcW'].forEach(id => document.getElementById(id).addEventListener('input', () => glcRun(false)));
+document.getElementById('glcDisc').onchange = () => glcRun(false);
+document.getElementById('glcClear').onclick = () => { document.getElementById('glcIn').value = ''; glcPicks.clear(); glcHi = null; glcRun(false); home(); };
+document.getElementById('glcCopy').onclick = () => { const t = document.getElementById('glcCmd'); if (!t.value) return; t.select(); navigator.clipboard?.writeText(t.value); setStatus('已复制替换命令:\n' + t.value, 'ok'); };
 document.getElementById('draw').onclick = () => doDraw(false);
 document.getElementById('clear').onclick = () => { polygon = null; corners = [null, null, null, null, null]; mapText = ['', '', '', '', '']; renderMaps(); emit(); updateInside(); setStatus('Ready'); draw(); };
 document.getElementById('surf').oninput = emit;
