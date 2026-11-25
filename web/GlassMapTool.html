@@ -672,7 +672,7 @@ function glcZoom(list) {   // 视野套住变量、候选与等距椭圆；nd–
   let ex = Math.max((x1 - x0) * 0.2, tab === 'cv' ? 0.0003 : 0.6), ey = Math.max((y1 - y0) * 0.2, 0.004);
   x0 -= ex; x1 += ex; y0 -= ey; y1 += ey;
   if (tab === 'cv' && w >= 1) {
-    const pw = cv.width - M.l - M.r, ph = cv.height - M.t - M.b, ux = (x1 - x0) / pw, uy = (y1 - y0) / ph;
+    const pw = CW - M.l - M.r, ph = CH - M.t - M.b, ux = (x1 - x0) / pw, uy = (y1 - y0) / ph;
     if (uy > w * ux) { const c = (x0 + x1) / 2, h = uy / w * pw / 2; x0 = c - h; x1 = c + h; }
     else { const c = (y0 + y1) / 2, h = w * ux * ph / 2; y0 = c - h; y1 = c + h; }
   }
@@ -731,14 +731,18 @@ let tab = 'cv', V = { ...HOME.cv }, hover = null, drag = null, panMode = false;
 let dragCorner = -1, hoverCorner = -1, dragStart = null;
 const M = { l: 62, r: 24, t: 40, b: 44 };
 const X = g => tab === 'cv' ? g.dn : (g.nd - 1) / g.dn;
-const px = x => M.l + (x - V.x0) / (V.x1 - V.x0) * (cv.width - M.l - M.r);
-const py = y => cv.height - M.b - (y - V.y0) / (V.y1 - V.y0) * (cv.height - M.t - M.b);
+const px = x => M.l + (x - V.x0) / (V.x1 - V.x0) * (CW - M.l - M.r);
+const py = y => CH - M.b - (y - V.y0) / (V.y1 - V.y0) * (CH - M.t - M.b);
 function niceStep(range, n) { const r = range / n, p = Math.pow(10, Math.floor(Math.log10(r))); for (const k of [1, 2, 2.5, 5, 10]) if (k * p >= r) return k * p; return 10 * p; }
-function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; draw(); }
+let CW = 0, CH = 0;   // 画布的逻辑尺寸（CSS px）；后备缓冲按 devicePixelRatio 放大，高分屏和高清截图不发虚
+function resize() {
+  const dpr = window.devicePixelRatio || 1; CW = cv.clientWidth; CH = cv.clientHeight;
+  cv.width = Math.round(CW * dpr); cv.height = Math.round(CH * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); draw();
+}
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function draw() {
   refreshShown();
-  const W = cv.width, H = cv.height; ctx.clearRect(0, 0, W, H);
+  const W = CW, H = CH; ctx.clearRect(0, 0, W, H);
   const T = { plot: css('--plot'), grid: css('--grid'), axis: css('--axis'), axtxt: css('--axtxt'), txt: css('--txt') };
   ctx.fillStyle = T.plot; ctx.fillRect(0, 0, W, H);
   ctx.font = '12px Segoe UI, system-ui'; ctx.lineWidth = 1;
@@ -786,7 +790,7 @@ function toggleCorner(g) {
   renderMaps(); polygon ? doDraw(true) : draw();
 }
 function toData(mx, my) {   // 像素 -> {nd, dn}
-  const xv = V.x0 + (mx - M.l) / (cv.width - M.l - M.r) * (V.x1 - V.x0), nd = V.y0 + (cv.height - M.b - my) / (cv.height - M.t - M.b) * (V.y1 - V.y0);
+  const xv = V.x0 + (mx - M.l) / (CW - M.l - M.r) * (V.x1 - V.x0), nd = V.y0 + (CH - M.b - my) / (CH - M.t - M.b) * (V.y1 - V.y0);
   return { nd, dn: tab === 'cv' ? xv : (nd - 1) / xv };
 }
 cv.addEventListener('mousemove', e => {
@@ -798,7 +802,7 @@ cv.addEventListener('mousemove', e => {
     else { const d = toData(mx, my); Object.assign(c, { nd: d.nd, dn: d.dn, fict: true }); delete c.g; delete c.cv; c.label = d.nd.toFixed(4) + ':' + vdOf(c).toFixed(2); }
     mapText[dragCorner] = c.label; tip.style.display = 'none'; draw(); return;
   }
-  if (drag) { const dx = (mx - drag.mx) / (cv.width - M.l - M.r) * (V.x1 - V.x0), dy = (my - drag.my) / (cv.height - M.t - M.b) * (V.y1 - V.y0); V.x0 = drag.v.x0 - dx; V.x1 = drag.v.x1 - dx; V.y0 = drag.v.y0 + dy; V.y1 = drag.v.y1 + dy; draw(); return; }
+  if (drag) { const dx = (mx - drag.mx) / (CW - M.l - M.r) * (V.x1 - V.x0), dy = (my - drag.my) / (CH - M.t - M.b) * (V.y1 - V.y0); V.x0 = drag.v.x0 - dx; V.x1 = drag.v.x1 - dx; V.y0 = drag.v.y0 + dy; V.y1 = drag.v.y1 + dy; draw(); return; }
   hoverCorner = panMode ? -1 : nearestCorner(mx, my);
   hoverGlc = panMode || hoverCorner >= 0 ? -1 : nearestGlc(mx, my);
   hover = hoverCorner >= 0 || hoverGlc >= 0 ? null : nearest(mx, my);
@@ -833,7 +837,7 @@ window.addEventListener('mouseup', e => {
 cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomAt(e.deltaY > 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top); }, { passive: false });
 cv.addEventListener('dblclick', home);
 cv.addEventListener('mouseleave', () => document.getElementById('tip').style.display = 'none');
-function zoomAt(f, mx, my) { const xv = V.x0 + (mx - M.l) / (cv.width - M.l - M.r) * (V.x1 - V.x0), yv = V.y0 + (cv.height - M.b - my) / (cv.height - M.t - M.b) * (V.y1 - V.y0); V.x0 = xv - (xv - V.x0) * f; V.x1 = xv + (V.x1 - xv) * f; V.y0 = yv - (yv - V.y0) * f; V.y1 = yv + (V.y1 - yv) * f; draw(); }
+function zoomAt(f, mx, my) { const xv = V.x0 + (mx - M.l) / (CW - M.l - M.r) * (V.x1 - V.x0), yv = V.y0 + (CH - M.b - my) / (CH - M.t - M.b) * (V.y1 - V.y0); V.x0 = xv - (xv - V.x0) * f; V.x1 = xv + (V.x1 - xv) * f; V.y0 = yv - (yv - V.y0) * f; V.y1 = yv + (V.y1 - yv) * f; draw(); }
 function fitView() {   // 按当前数据自动适配坐标范围（含角点），留 6% 边距
   const pts = shown.concat(corners.filter(Boolean), glcVars);
   if (!pts.length) return { ...HOME[tab] };
@@ -878,8 +882,8 @@ document.getElementById('autoMax').onclick = () => { setStatus('计算中…'); 
 document.getElementById('glaIn').onkeydown = e => { if (e.key === 'Enter') parseGLA(); };
 [['↖', -1, 1], ['↑', 0, 1], ['↗', 1, 1], ['←', -1, 0], ['•', 0, 0], ['→', 1, 0], ['↙', -1, -1], ['↓', 0, -1], ['↘', 1, -1]].forEach(([s, dx, dy]) => { const b = document.createElement('button'); b.textContent = s; b.onclick = () => nudge(dx, dy); document.getElementById('nudge').appendChild(b); });
 document.getElementById('tPan').onclick = e => { panMode = !panMode; e.currentTarget.classList.toggle('on', panMode); cv.style.cursor = panMode ? 'grab' : 'crosshair'; };
-document.getElementById('tZi').onclick = () => zoomAt(1 / 1.3, (M.l + cv.width - M.r) / 2, (M.t + cv.height - M.b) / 2);
-document.getElementById('tZo').onclick = () => zoomAt(1.3, (M.l + cv.width - M.r) / 2, (M.t + cv.height - M.b) / 2);
+document.getElementById('tZi').onclick = () => zoomAt(1 / 1.3, (M.l + CW - M.r) / 2, (M.t + CH - M.b) / 2);
+document.getElementById('tZo').onclick = () => zoomAt(1.3, (M.l + CW - M.r) / 2, (M.t + CH - M.b) / 2);
 document.getElementById('tHome').onclick = home;
 document.getElementById('tPng').onclick = () => { const a = document.createElement('a'); a.download = (tab === 'cv' ? 'codev_boundary' : 'abbe_diagram') + '.png'; a.href = cv.toDataURL('image/png'); a.click(); };
 window.addEventListener('resize', resize);
