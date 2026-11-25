@@ -59,10 +59,13 @@
   #glcIn { width:100%; height:78px; flex:none; font:12px Consolas, monospace; resize:vertical; }
   #glcList { max-height:320px; overflow:auto; border:1px solid var(--line); background:var(--field); font:12px Consolas, monospace; margin-top:4px; }
   #glcList:empty { display:none; }
-  #glcList .gh { display:flex; justify-content:space-between; gap:8px; padding:3px 6px; font-weight:bold; cursor:pointer; border-top:1px solid var(--line); white-space:nowrap; }
+  #glcList .gh { display:flex; align-items:center; gap:8px; padding:3px 6px; font-weight:bold; cursor:pointer; border-top:1px solid var(--line); white-space:nowrap; }
   #glcList .gh.on { background:rgba(216,27,96,.14); }
-  #glcList .gh span { font-weight:normal; color:var(--mute); }
-  #glcList .gr { display:grid; grid-template-columns:16px minmax(0,1fr) 50px 66px 50px 54px; gap:4px; padding:1px 6px; cursor:pointer; white-space:nowrap; }
+  #glcList .gh span { font-weight:normal; color:var(--mute); margin-left:auto; }
+  #glcList .gr { display:grid; grid-template-columns:16px minmax(0,1fr) 50px 66px 50px 54px 16px; gap:4px; padding:1px 6px; cursor:pointer; white-space:nowrap; }
+  #glcList button.cp { height:auto; padding:0 3px; border:0; border-radius:3px; background:transparent; color:var(--mute); font:13px/1.2 "Segoe UI", system-ui; cursor:pointer; }
+  #glcList button.cp:hover { color:var(--txt); background:rgba(127,127,127,.28); }
+  #glcList .gr.pick button.cp { color:#fff; }
   #glcList .gr > span { overflow:hidden; text-overflow:ellipsis; }
   #glcList .gr > span:nth-child(n+4) { text-align:right; }
   #glcList .gr.hd { color:var(--mute); cursor:default; position:sticky; top:0; background:var(--field); border-bottom:1px solid var(--line); }
@@ -91,10 +94,10 @@
     </div>
     <div class="hint" id="findInfo"></div>
 
-    <div class="sec">GLC 变量 → 近邻玻璃 (GLASSFIT):</div>
-    <textarea id="glcIn" spellcheck="false" placeholder="从 LDM 复制玻璃列或整行粘贴，例如：&#10;16	球面	-28.9607	1.0500	566548.413241&#10;821974.437941&#10;1.5665:41.32"></textarea>
+    <div class="sec">GLC 变量 / 牌号 → 近邻玻璃 (GLASSFIT):</div>
+    <textarea id="glcIn" spellcheck="false" placeholder="从 LDM 复制玻璃列或整行粘贴，变量和实际牌号都行，例如：&#10;16	球面	-28.9607	1.0500	566548.413241&#10;5	球面	-30.6306	1.0300	FF5_HOYA&#10;FCD515_HOYA&#10;1.5665:41.32"></textarea>
     <div class="row">
-      <label title="每个变量列出几块最近的玻璃">前</label><input type="text" id="glcN" value="5" style="width:40px;flex:none;height:30px;text-align:right">
+      <label title="每个变量 / 牌号列出几块最近的玻璃">前</label><input type="text" id="glcN" value="5" style="width:40px;flex:none;height:30px;text-align:right">
       <label title="Δ色散权重 w：d = √(ΔNd² + (w·Δdisp)²)。&#10;GLASSFIT 里 w = disp_factor × 50 × (λ1−λn)/170.14 nm，&#10;C-d-F 三波长、disp_factor = 1 时为 50；656–436 nm 五波长为 64.8">权重 w</label><input type="text" id="glcW" value="50" style="width:52px;flex:none;height:30px;text-align:right">
       <label title="同 GLASSFIT 默认：去掉 CODE V 库里可用性代码 3 / 4（停产）的牌号。xlsx 表没有这个字段，不受影响"><input type="checkbox" id="glcDisc" checked> 去停产</label>
       <button id="glcClear" style="height:30px;margin-left:auto">Clear</button>
@@ -102,8 +105,8 @@
     <div class="hint" id="glcInfo"></div>
     <div id="glcList"></div>
     <div id="glcOut" style="display:none">
-      <textarea id="glcCmd" readonly title="点候选行可换选；带表面号的变量生成 GLC Sk 100; GLA Sk 牌号（与 GLASSFIT 替换时相同）"></textarea>
-      <div class="row"><button id="glcCopy" style="height:32px">复制替换命令</button><span class="hint" style="margin:0">点候选行或图上的候选点可换选</span></div>
+      <textarea id="glcCmd" readonly placeholder="实际牌号默认不替换；点它下面的候选行后这里生成命令" title="带表面号的变量生成 GLC Sk 100; GLA Sk 牌号（与 GLASSFIT 替换时相同）；实际牌号只生成 GLA Sk 牌号"></textarea>
+      <div class="row"><button id="glcCopy" style="height:32px;flex:none;white-space:nowrap">复制替换命令</button><span class="hint" style="margin:0">点候选选定 / 再点取消 · ⧉ 复制牌号</span></div>
     </div>
 
     <div class="sec">Boundary Points (CodeV):</div>
@@ -528,30 +531,54 @@ function autoMaxCoverage() {
 function setStatus(s, cls) { const e = document.getElementById('status'); e.textContent = s; e.className = cls || ''; }
 
 /* =====================================================================
-   4b. GLC 变量 → 近邻玻璃（与 CODE V glassfit.seq 同一度量）
+   4b. GLC 变量 / 实际牌号 → 近邻玻璃（与 CODE V glassfit.seq 同一度量）
    假想玻璃名 nnnnnn.vvvvvv：nd = 1.nnnnnn，Vd = vv.vvvv（glassfit.seq 也这么拆）；也接受 nd:Vd。
+   实际牌号（FCD515_HOYA、HK9L、S-NPH 5…）按 findGlass 规则识别，列出它附近的其它牌号（替代料）。
    d = √(ΔNd² + (w·Δdisp)²)，disp = (nd−1)/Vd；GLASSFIT 中 w = disp_factor × 50 × (λ1−λn)/170.14。
-   ΔNd、ΔVd 的符号同 GLASSFIT：变量 − 玻璃。
+   ΔNd、ΔVd 的符号同 GLASSFIT：输入 − 候选。
    ===================================================================== */
-let glcVars = [], glcFocus = -1, glcHi = null, hoverGlc = -1, glcTimer = 0, glcCand = new Set();
-const glcPicks = new Map();                       // `${label}|${text}` -> 选定玻璃 key，重算时保留
+let glcVars = [], glcFocus = -1, glcHi = null, hoverGlc = -1, glcTimer = 0, glcCand = new Set(), glcMiss = [];
+const glcPicks = new Map();                       // `${label}|${text}` -> 选定玻璃 key（'' = 主动取消），重算时保留
 const gkey = g => g.cv + '_' + g.cat;
+const GLC_FICT = /(?<![\d.:\-])(?:(\d{6})\.(\d{2})(\d*)|([1-4]\.\d+)\s*:\s*(\d{1,3}(?:\.\d+)?))(?![\d.:])/g;
+// 像牌号的词：字母开头；带 _厂商 后缀，或含数字且不少于 3 个字符；排除 S16 / GLA / GLC 这类命令词
+const glassLike = t => /^[A-Za-z][\w\-]*$/.test(t) && !/^(S\d+|GLA|GLC)$/i.test(t) && (t.includes('_') || (/\d/.test(t) && t.replace(/[\-_]/g, '').length >= 3));
 function parseGlc(text) {
-  const out = []; let auto = 0;
+  const out = []; let auto = 0; glcMiss = [];
   for (const line of text.split(/\r?\n/)) {
     const sm = line.match(/^\s*(?:GLA\s+)?S?(\d{1,3})(?=[\s,;])/i);   // 行首表面号（LDM 整行复制时第一列）
-    const re = /(?<![\d.:\-])(?:(\d{6})\.(\d{2})(\d*)|([1-4]\.\d+)\s*:\s*(\d{1,3}(?:\.\d+)?))(?![\d.:])/g;
     let m, k = 0;
-    while ((m = re.exec(line))) {
+    const tag = () => sm ? 'S' + sm[1] + (k ? String.fromCharCode(96 + k) : '') : null, surf = () => sm && !k ? +sm[1] : null;
+    GLC_FICT.lastIndex = 0;
+    while ((m = GLC_FICT.exec(line))) {   // 假想玻璃
       const nd = m[1] ? 1 + m[1] / 1e6 : +m[4];
       const vd = m[1] ? parseFloat(m[2] + '.' + (m[3] || '0')) : +m[5];
       if (!(nd > 1.2 && nd < 4.5 && vd > 5 && vd < 150)) continue;
-      const label = sm ? 'S' + sm[1] + (k ? String.fromCharCode(96 + k) : '') : 'G' + (++auto);
-      out.push({ label, surf: sm && !k ? +sm[1] : null, text: m[0].replace(/\s+/g, ''), nd, vd, dn: (nd - 1) / vd, cands: [], pick: null });
+      out.push({ label: tag() || 'G' + (++auto), surf: surf(), text: m[0].replace(/\s+/g, ''), nd, vd, dn: (nd - 1) / vd, real: null, cands: [], pick: null });
+      k++;
+    }
+    const rest = line.replace(GLC_FICT, ' '), whole = rest.trim(), found = [];
+    if (whole && !whole.includes('\t') && whole.length <= 24) { const g = findGlass(whole); if (g) found.push(g); }   // 整行就是一个牌号（含空格的 S-NPH 5 也行）
+    if (!found.length) for (const t of rest.split(/[\s,;]+/)) {
+      if (!glassLike(t)) continue;
+      const g = findGlass(t); if (g) found.push(g); else if (t.includes('_')) glcMiss.push(t);
+    }
+    for (const g of found) {   // 实际牌号
+      out.push({ label: tag() || g.name, surf: surf(), text: gkey(g), nd: g.nd, vd: g.vd, dn: g.dn, real: g, cands: [], pick: null });
       k++;
     }
   }
   return out;
+}
+async function copyText(t) {   // file:// 等非安全上下文没有 navigator.clipboard 时退回 execCommand
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) {}
+  const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;left:-9999px;opacity:0';
+  document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) {} ta.remove(); return ok;
+}
+function cpButton(text, label, title) {
+  const b = document.createElement('button'); b.className = 'cp'; b.textContent = label; b.title = title;
+  b.onclick = async e => { e.stopPropagation(); const ok = await copyText(text); b.textContent = ok ? '✓' : '✗'; setTimeout(() => b.textContent = label, 900); };
+  return b;
 }
 const glcW = () => { const w = parseFloat(document.getElementById('glcW').value); return w >= 0 ? w : 50; };
 function glcPool() {   // 所选库全部牌号（含 HWS 等默认隐藏的，同 GLASSFIT），按 牌号_厂商 去重；勾选“去停产”时剔除 avail 3/4
@@ -568,20 +595,24 @@ function glcRun(zoom) {
   const prev = glcVars[glcFocus], prevKey = prev && prev.label + '|' + prev.text;
   glcVars = parseGlc(document.getElementById('glcIn').value);
   for (const v of glcVars) {
-    v.cands = list.map(g => { const dnd = v.nd - g.nd, ddisp = v.dn - g.dn; return { g, dnd, ddisp, dvd: v.vd - g.vd, d: Math.hypot(dnd, w * ddisp) }; })
+    const self = v.real && gkey(v.real);   // 实际牌号：候选里去掉它自己
+    v.cands = list.filter(g => gkey(g) !== self).map(g => { const dnd = v.nd - g.nd, ddisp = v.dn - g.dn; return { g, dnd, ddisp, dvd: v.vd - g.vd, d: Math.hypot(dnd, w * ddisp) }; })
       .sort((a, b) => a.d - b.d).slice(0, N);
-    const pk = glcPicks.get(v.label + '|' + v.text), c = v.cands.find(c => gkey(c.g) === pk) || v.cands[0];
+    // 变量默认选最近的（同 GLASSFIT 自动替换）；实际牌号默认不替换，点了才生成命令
+    const pk = glcPicks.get(v.label + '|' + v.text), c = pk === '' ? null : v.cands.find(c => gkey(c.g) === pk) || (v.real ? null : v.cands[0]);
     v.pick = c ? c.g : null;
   }
   glcCand = new Set(glcVars.flatMap(v => v.cands.map(c => c.g)));   // 候选里若有默认隐藏的特殊玻璃，也让它显示出来
   const fi = glcVars.findIndex(v => v.label + '|' + v.text === prevKey);
   glcFocus = fi >= 0 ? fi : glcVars.length ? 0 : -1;
   const info = document.getElementById('glcInfo'), raw = document.getElementById('glcIn').value.trim();
+  const miss = glcMiss.length ? `\n未找到：${glcMiss.join(' ')}` : '';
+  const nReal = glcVars.filter(v => v.real).length, nFict = glcVars.length - nReal;
   if (!raw) info.textContent = '';
-  else if (!glcVars.length) info.textContent = '没认出玻璃变量。支持 CODE V 假想玻璃 566548.413241（nd 1.566548, Vd 41.3241）或 1.5665:41.32';
-  else if (!list.length) info.textContent = '先在上面的列表里选玻璃库（Ctrl 多选）';
-  else info.textContent = `${glcVars.length} 个变量 · 在 ${[...new Set(list.map(g => g.cat))].join(' + ')} 共 ${list.length} 块中搜索`
-    + (nDisc ? `（已去停产 ${nDisc}）` : '') + ` · w = ${w}`;
+  else if (!glcVars.length) info.textContent = '没认出玻璃。支持 CODE V 假想玻璃 566548.413241（nd 1.566548, Vd 41.3241）、1.5665:41.32，或牌号 FCD515_HOYA / HK9L' + miss;
+  else if (!list.length) info.textContent = '先在上面的列表里选玻璃库（Ctrl 多选）' + miss;
+  else info.textContent = [nFict && `${nFict} 个变量`, nReal && `${nReal} 个牌号`].filter(Boolean).join(' + ')
+    + ` · 在 ${[...new Set(list.map(g => g.cat))].join(' + ')} 共 ${list.length} 块中搜索` + (nDisc ? `（已去停产 ${nDisc}）` : '') + ` · w = ${w}` + miss;
   glcRender(); glcEmit();
   if (zoom && glcVars.length) glcZoom(glcVars); else draw();
 }
@@ -591,19 +622,22 @@ function glcRender() {
   const sp = (row, txt) => { const s = document.createElement('span'); s.textContent = txt; row.appendChild(s); };
   const sg = (x, d) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(d);
   const hd = document.createElement('div'); hd.className = 'gr hd';
-  ['#', '玻璃', '厂商', 'ΔNd', 'ΔVd', 'd'].forEach(t => sp(hd, t));
-  hd.title = 'ΔNd、ΔVd = 变量 − 玻璃（同 GLASSFIT）；d = √(ΔNd² + (w·Δdisp)²)';
+  ['#', '玻璃', '厂商', 'ΔNd', 'ΔVd', 'd', ''].forEach(t => sp(hd, t));
+  hd.title = 'ΔNd、ΔVd = 输入 − 候选（同 GLASSFIT）；d = √(ΔNd² + (w·Δdisp)²)';
   box.appendChild(hd);
   glcVars.forEach((v, i) => {
     const h = document.createElement('div'); h.className = 'gh' + (i === glcFocus ? ' on' : '');
-    const b = document.createElement('b'); b.textContent = `${v.label}  ${v.text}`; h.appendChild(b);
+    const b = document.createElement('b'); b.textContent = v.real && v.surf == null ? v.text : `${v.label}  ${v.text}`; h.appendChild(b);
     sp(h, `nd ${v.nd.toFixed(5)}  Vd ${v.vd.toFixed(2)}`);
-    h.title = '点击：在图上定位这个变量'; h.onclick = () => { glcFocus = i; glcRender(); glcZoom([v]); };
+    const all = v.cands.map(c => gkey(c.g)).join(' ');
+    if (all) h.appendChild(cpButton(all, '⧉ 全部', `复制这 ${v.cands.length} 块（空格分隔）：\n${all}`));
+    h.title = '点击：在图上定位'; h.onclick = () => { glcFocus = i; glcRender(); glcZoom([v]); };
     box.appendChild(h);
     v.cands.forEach((c, r) => {
       const row = document.createElement('div'); row.className = 'gr' + (c.g === v.pick ? ' pick' : '');
       [r + 1, c.g.name, c.g.cat, sg(c.dnd, 5), sg(c.dvd, 2), c.d.toFixed(4)].forEach(t => sp(row, String(t)));
-      row.title = `${c.g.name} [${c.g.cat}]  nd=${c.g.nd.toFixed(5)}  Vd=${c.g.vd.toFixed(2)}  nF−nC=${c.g.dn.toFixed(5)}\nΔDisp=${sg(c.ddisp, 6)}  avail=${c.g.avail ?? '—'}  (${c.g.src})\n点击选为 ${v.label} 的替换玻璃`;
+      row.appendChild(cpButton(gkey(c.g), '⧉', `复制 ${gkey(c.g)}`));
+      row.title = `${c.g.name} [${c.g.cat}]  nd=${c.g.nd.toFixed(5)}  Vd=${c.g.vd.toFixed(2)}  nF−nC=${c.g.dn.toFixed(5)}\nΔDisp=${sg(c.ddisp, 6)}  avail=${c.g.avail ?? '—'}  (${c.g.src})\n点击${c.g === v.pick ? '取消选定' : `选为 ${v.label} 的替换玻璃`}；⧉ 复制牌号`;
       row.onclick = () => glcSetPick(i, c.g);
       row.onmouseenter = () => { glcHi = c.g; draw(); };
       row.onmouseleave = () => { glcHi = null; draw(); };
@@ -611,13 +645,16 @@ function glcRender() {
     });
   });
 }
-function glcSetPick(i, g) {
+function glcSetPick(i, g) {   // 再点已选的那块 = 取消
   const v = glcVars[i]; if (!v) return;
-  v.pick = g; glcPicks.set(v.label + '|' + v.text, gkey(g)); glcFocus = i;
+  const off = v.pick && gkey(v.pick) === gkey(g);
+  v.pick = off ? null : g; glcPicks.set(v.label + '|' + v.text, off ? '' : gkey(g)); glcFocus = i;
   glcRender(); glcEmit(); draw();
 }
-function glcEmit() {   // 与 GLASSFIT 替换时一致：先 GLC Sk 100 冻结，再 GLA Sk 牌号
-  const lines = glcVars.filter(v => v.pick).map(v => v.surf != null ? `GLC S${v.surf} 100; GLA S${v.surf} ${gkey(v.pick)}` : `! ${v.label} ${v.text} -> ${gkey(v.pick)}`);
+function glcEmit() {   // 变量与 GLASSFIT 替换时一致：先 GLC Sk 100 冻结，再 GLA Sk 牌号；实际牌号只需 GLA Sk 牌号
+  const lines = glcVars.filter(v => v.pick).map(v => v.surf != null
+    ? (v.real ? '' : `GLC S${v.surf} 100; `) + `GLA S${v.surf} ${gkey(v.pick)}`
+    : `! ${v.real ? v.text : v.label + ' ' + v.text} -> ${gkey(v.pick)}`);
   document.getElementById('glcCmd').value = lines.join('\n');
   document.getElementById('glcOut').style.display = glcVars.length ? '' : 'none';
 }
@@ -674,8 +711,10 @@ function drawGlc() {
       ctx.strokeStyle = C; ctx.lineWidth = 1.5; ctx.globalAlpha = .7; ctx.beginPath(); ctx.moveTo(vx, vy); ctx.lineTo(gx, gy); ctx.stroke();
       ctx.beginPath(); ctx.arc(gx, gy, 5, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
     }
-    const s = foc ? 8 : 6;
-    ctx.beginPath(); ctx.moveTo(vx, vy - s); ctx.lineTo(vx + s, vy); ctx.lineTo(vx, vy + s); ctx.lineTo(vx - s, vy); ctx.closePath();
+    const s = foc ? 8 : 6;   // 变量画菱形，实际牌号画方块
+    ctx.beginPath();
+    if (v.real) ctx.rect(vx - s * .72, vy - s * .72, s * 1.44, s * 1.44);
+    else { ctx.moveTo(vx, vy - s); ctx.lineTo(vx + s, vy); ctx.lineTo(vx, vy + s); ctx.lineTo(vx - s, vy); ctx.closePath(); }
     ctx.fillStyle = C; ctx.fill(); ctx.strokeStyle = bg; ctx.lineWidth = 1.5; ctx.stroke();
     if (i === hoverGlc) { ctx.beginPath(); ctx.arc(vx, vy, 12, 0, 7); ctx.strokeStyle = C; ctx.lineWidth = 2; ctx.stroke(); }
     ctx.fillStyle = C; ctx.font = 'bold 12px Segoe UI, system-ui'; ctx.textAlign = 'right'; ctx.fillText(v.label, vx - 10, vy - 8);
